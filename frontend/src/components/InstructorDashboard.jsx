@@ -4,7 +4,7 @@ import {
   getCustomProblems, saveCustomProblem, deleteCustomProblem,
   getAnnouncements, saveAnnouncement, deleteAnnouncement,
   getContent, saveContent, deleteContent,
-  getAllSubmissions, setSubmissionStatus, onStoreChange,
+  getAllSubmissions, onStoreChange,
   getExamConfigs, setExamConfig,
 } from '../lib/instructor-store';
 
@@ -24,14 +24,8 @@ const TYPE_STYLES = {
   ASSIGNMENT: 'bg-indigo-50 border-indigo-100 text-indigo-600',
   EXAM: 'bg-[#FF9900]/10 border-[#FF9900]/20 text-[#CC7A00]',
 };
-const DIFF_STYLES = {
-  beginner: 'bg-emerald-50 border-emerald-100 text-emerald-600',
-  intermediate: 'bg-amber-50 border-amber-100 text-amber-600',
-  advanced: 'bg-rose-50 border-rose-100 text-rose-600',
-};
-
 // ── Small UI helpers ────────────────────────────────────────
-const labelCls = 'text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-2';
+const labelCls = 'text-xs font-bold text-slate-500 uppercase tracking-widest block mb-2';
 const inputCls = 'w-full bg-slate-50 border border-slate-200 p-3.5 rounded-xl font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#03045e] focus:ring-1 focus:ring-[#03045e] transition-colors';
 
 const Icon = ({ d, className = 'w-5 h-5' }) => (
@@ -53,6 +47,7 @@ const ICONS = {
   users: 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4 0M13 7a4 4 0 11-8 0 4 4 0 018 0z',
   doc: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
   chart: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+  chevron: 'M19 9l-7 7-7-7',
 };
 
 function Modal({ title, subtitle, onClose, children, footer, wide }) {
@@ -60,17 +55,17 @@ function Modal({ title, subtitle, onClose, children, footer, wide }) {
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}></div>
       <div className={`relative w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} max-h-[90vh] bg-white rounded-[2rem] shadow-[0_24px_60px_-15px_rgba(3,4,94,0.35)] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}>
-        <div className="px-7 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
-          <div>
-            <h3 className="text-lg font-bold text-[#03045e]">{title}</h3>
-            {subtitle && <p className="text-xs text-slate-400 font-medium mt-0.5">{subtitle}</p>}
+        <div className="px-5 sm:px-7 py-4 sm:py-5 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50/50 shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-lg sm:text-xl font-bold text-[#03045e] truncate">{title}</h3>
+            {subtitle && <p className="text-sm text-slate-400 font-medium mt-0.5">{subtitle}</p>}
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors outline-none">
+          <button onClick={onClose} className="w-9 h-9 shrink-0 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-100 active:scale-95 transition-all outline-none">
             <Icon d={ICONS.close} className="w-4 h-4" />
           </button>
         </div>
-        <div className="p-7 overflow-y-auto custom-scrollbar space-y-5">{children}</div>
-        {footer && <div className="px-7 py-4 border-t border-slate-100 bg-slate-50/50 shrink-0 flex justify-end gap-3">{footer}</div>}
+        <div className="p-5 sm:p-7 overflow-y-auto custom-scrollbar space-y-5">{children}</div>
+        {footer && <div className="px-5 sm:px-7 py-4 border-t border-slate-100 bg-slate-50/50 shrink-0 flex justify-end gap-3">{footer}</div>}
       </div>
     </div>
   );
@@ -78,19 +73,19 @@ function Modal({ title, subtitle, onClose, children, footer, wide }) {
 
 function EmptyState({ icon, title, hint }) {
   return (
-    <div className="bg-white border border-slate-200 shadow-[0_8px_30px_rgba(0,0,0,0.03)] rounded-3xl p-12 text-center flex flex-col items-center justify-center min-h-[260px]">
-      <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 mb-5 border border-slate-100">
-        <Icon d={icon} className="w-7 h-7" />
+    <div className="bg-white border border-slate-200 shadow-[0_8px_30px_rgba(0,0,0,0.03)] rounded-3xl p-8 sm:p-12 text-center flex flex-col items-center justify-center min-h-[260px]">
+      <div className="w-16 h-16 sm:w-20 sm:h-20 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 mb-5 border border-slate-100">
+        <Icon d={icon} className="w-7 h-7 sm:w-9 sm:h-9" />
       </div>
-      <h3 className="text-slate-800 font-bold text-lg mb-1">{title}</h3>
-      <p className="text-slate-400 text-sm max-w-xs mx-auto">{hint}</p>
+      <h3 className="text-slate-800 font-bold text-lg sm:text-xl mb-1.5">{title}</h3>
+      <p className="text-slate-400 text-sm sm:text-base max-w-sm mx-auto">{hint}</p>
     </div>
   );
 }
 
-const btnPrimary = 'inline-flex items-center justify-center gap-2 bg-[#03045e] text-white px-5 py-3 rounded-xl font-bold text-sm hover:bg-[#020344] hover:-translate-y-0.5 active:translate-y-0 transition-all shadow-md hover:shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-[#03045e]/30';
-const btnAccent = 'inline-flex items-center justify-center gap-2 bg-[#f48c06] text-white px-5 py-3 rounded-xl font-bold text-sm hover:bg-[#e07d00] hover:-translate-y-0.5 active:translate-y-0 transition-all shadow-md hover:shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-[#f48c06]/40';
-const btnGhost = 'inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm text-slate-500 hover:bg-slate-100 transition-colors outline-none';
+const btnPrimary = 'inline-flex items-center justify-center gap-2 bg-[#03045e] text-white px-5 py-3 rounded-xl font-bold text-sm sm:text-base hover:bg-[#020344] hover:-translate-y-0.5 active:translate-y-0 active:scale-[.98] transition-all shadow-md hover:shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-[#03045e]/30';
+const btnAccent = 'inline-flex items-center justify-center gap-2 bg-[#f48c06] text-white px-5 py-3 rounded-xl font-bold text-sm sm:text-base hover:bg-[#e07d00] hover:-translate-y-0.5 active:translate-y-0 active:scale-[.98] transition-all shadow-md hover:shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-[#f48c06]/40';
+const btnGhost = 'inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm sm:text-base text-slate-500 hover:bg-slate-100 hover:text-slate-700 active:scale-[.98] transition-all outline-none';
 
 /** Build a CSV string from rows of cells (RFC-4180 quoting) and trigger a download. */
 function downloadCsv(filename, rows) {
@@ -115,13 +110,13 @@ function downloadCsv(filename, rows) {
 function SectionHeader({ icon, title, desc, action }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      <div className="flex items-center gap-3.5">
-        <div className="w-11 h-11 rounded-2xl bg-[#03045e]/10 text-[#03045e] flex items-center justify-center shrink-0">
-          <Icon d={icon} className="w-5 h-5" />
+      <div className="flex items-center gap-3.5 sm:gap-4">
+        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#03045e]/10 text-[#03045e] flex items-center justify-center shrink-0">
+          <Icon d={icon} className="w-6 h-6 sm:w-7 sm:h-7" />
         </div>
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-[#03045e] tracking-tight leading-none">{title}</h2>
-          {desc && <p className="text-sm text-slate-500 mt-1.5">{desc}</p>}
+        <div className="min-w-0">
+          <h2 className="text-2xl sm:text-3xl font-bold text-[#03045e] tracking-tight leading-tight">{title}</h2>
+          {desc && <p className="text-sm sm:text-base text-slate-500 mt-1.5">{desc}</p>}
         </div>
       </div>
       {action && <div className="shrink-0">{action}</div>}
@@ -131,7 +126,7 @@ function SectionHeader({ icon, title, desc, action }) {
 
 // ════════════════════════════════════════════════════════════
 export default function InstructorDashboard({ onNavigate, user }) {
-  const [section, setSection] = useState('overview');
+  const [section, setSection] = useState('students');
   const [customProblems, setCustomProblems] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [content, setContent] = useState([]);
@@ -155,22 +150,10 @@ export default function InstructorDashboard({ onNavigate, user }) {
   // TA is merged into Instructor — one shared teaching identity.
   const roleLabel = 'Instructor';
 
-  const stats = useMemo(() => {
-    const total = builtinProblems.length + customProblems.length;
-    const exams = builtinProblems.filter((p) => p.type === 'EXAM').length + customProblems.filter((p) => p.type === 'EXAM').length;
-    const passed = submissions.filter((s) => s.passed).length;
-    const passRate = submissions.length ? Math.round((passed / submissions.length) * 100) : 0;
-    return { total, exams, passRate, subs: submissions.length };
-  }, [customProblems, submissions]);
-
   const SECTIONS = [
-    { id: 'overview', label: 'Overview', icon: ICONS.grid },
     { id: 'students', label: 'Students', icon: ICONS.users },
-    { id: 'grading', label: 'Grading', icon: ICONS.check },
-    { id: 'analytics', label: 'Analytics', icon: ICONS.chart },
     { id: 'content', label: 'Content', icon: ICONS.book },
     { id: 'problems', label: 'Problems', icon: ICONS.code },
-    { id: 'exams', label: 'Exam Control', icon: ICONS.doc },
     { id: 'announcements', label: 'Announcements', icon: ICONS.mega },
   ];
 
@@ -180,15 +163,15 @@ export default function InstructorDashboard({ onNavigate, user }) {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-[#03045e] text-white flex items-center justify-center shadow-[0_8px_20px_rgba(3,4,94,0.25)] shrink-0">
-            <Icon d={ICONS.users} className="w-6 h-6" />
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#03045e] text-white flex items-center justify-center shadow-[0_8px_20px_rgba(3,4,94,0.25)] shrink-0">
+            <Icon d={ICONS.users} className="w-6 h-6 sm:w-7 sm:h-7" />
           </div>
           <div>
             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#03045e]/5 border border-[#03045e]/10 mb-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-[#f48c06]"></span>
-              <span className="text-[10px] font-bold text-[#03045e] uppercase tracking-widest">{roleLabel} Console</span>
+              <span className="text-[11px] sm:text-xs font-bold text-[#03045e] uppercase tracking-widest">{roleLabel} Console</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-[#03045e] tracking-tight leading-none">Teaching Console</h1>
+            <h1 className="text-3xl sm:text-4xl font-bold text-[#03045e] tracking-tight leading-tight">Teaching Console</h1>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -207,197 +190,19 @@ export default function InstructorDashboard({ onNavigate, user }) {
           <button
             key={s.id}
             onClick={() => setSection(s.id)}
-            className={`flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-sm leading-tight text-center transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-[#03045e]/30
+            className={`flex items-center justify-center gap-2 px-4 py-3.5 sm:py-4 rounded-xl font-bold text-sm sm:text-base leading-tight text-center transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-[#03045e]/30 active:scale-95
               ${section === s.id ? 'bg-[#03045e] text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
           >
-            <Icon d={s.icon} className="w-4 h-4 shrink-0" />
+            <Icon d={s.icon} className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
             <span>{s.label}</span>
           </button>
         ))}
       </div>
 
-      {section === 'overview' && <Overview stats={stats} submissions={submissions} announcements={announcements} onGoto={setSection} />}
-      {section === 'students' && <Students submissions={submissions} />}
-      {section === 'grading' && <Grading submissions={submissions} onRefresh={refresh} />}
-      {section === 'analytics' && <Analytics submissions={submissions} />}
+      {section === 'students' && <StudentsAnalytics submissions={submissions} />}
       {section === 'content' && <ContentManager content={content} onRefresh={refresh} />}
-      {section === 'problems' && <ProblemManager custom={customProblems} onRefresh={refresh} />}
-      {section === 'exams' && <ExamControl custom={customProblems} examConfigs={examConfigs} onRefresh={refresh} />}
+      {section === 'problems' && <ProblemManager custom={customProblems} examConfigs={examConfigs} onRefresh={refresh} />}
       {section === 'announcements' && <AnnouncementManager items={announcements} onRefresh={refresh} author={user?.name || roleLabel} />}
-    </div>
-  );
-}
-
-// ── Overview ────────────────────────────────────────────────
-function Overview({ stats, submissions, announcements, onGoto }) {
-  const cards = [
-    { label: 'Total Problems', value: stats.total, tint: 'text-[#03045e] bg-[#03045e]/10', icon: ICONS.code },
-    { label: 'Exams', value: stats.exams, tint: 'text-[#CC7A00] bg-[#FF9900]/10', icon: ICONS.doc },
-    { label: 'Submissions', value: stats.subs, tint: 'text-indigo-600 bg-indigo-50', icon: ICONS.check },
-    { label: 'Pass Rate', value: `${stats.passRate}%`, tint: 'text-emerald-600 bg-emerald-50', icon: ICONS.chart },
-  ];
-  const recent = submissions.slice(0, 6);
-  return (
-    <div className="space-y-6">
-      <SectionHeader icon={ICONS.grid} title="Overview" desc="Live snapshot of your class activity." />
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {cards.map((c) => (
-          <div key={c.label} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${c.tint}`}>
-              <Icon d={c.icon} className="w-4 h-4" />
-            </div>
-            <p className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{c.value}</p>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{c.label}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-bold text-slate-800">Recent Submissions</h3>
-            <button onClick={() => onGoto('grading')} className="text-xs font-bold text-[#03045e] hover:underline">Review all →</button>
-          </div>
-          {recent.length === 0 ? (
-            <div className="p-10 text-center text-sm text-slate-400">No submissions recorded yet.</div>
-          ) : (
-            <div className="divide-y divide-slate-50">
-              {recent.map((s, i) => (
-                <div key={i} className="px-6 py-3.5 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-800 text-sm truncate">Student {s.userId}</p>
-                    <p className="text-xs text-slate-400 truncate">{s.mode} · Module {s.modId} · Q{s.step}</p>
-                  </div>
-                  <span className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-md border ${s.passed ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-600'}`}>
-                    {s.passed ? 'Passed' : 'Failed'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-bold text-slate-800">Latest Announcements</h3>
-            <button onClick={() => onGoto('announcements')} className="text-xs font-bold text-[#03045e] hover:underline">Manage →</button>
-          </div>
-          {announcements.length === 0 ? (
-            <div className="p-10 text-center text-sm text-slate-400">No announcements posted yet.</div>
-          ) : (
-            <div className="divide-y divide-slate-50">
-              {announcements.slice(0, 5).map((a) => (
-                <div key={a.id} className="px-6 py-3.5 flex items-start gap-3">
-                  <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${a.priority === 'high' ? 'bg-rose-500' : a.priority === 'low' ? 'bg-emerald-500' : 'bg-[#f48c06]'}`}></span>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-800 text-sm truncate">{a.title}</p>
-                    <p className="text-xs text-slate-400 truncate">{a.body}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Grading (ดูการตรวจงาน) ──────────────────────────────────
-function Grading({ submissions, onRefresh }) {
-  const [filter, setFilter] = useState('all');
-  const [q, setQ] = useState('');
-  const [expanded, setExpanded] = useState(null);
-
-  const rows = useMemo(() => {
-    return submissions.filter((s) => {
-      const matchFilter = filter === 'all' || (filter === 'passed' ? s.passed : !s.passed);
-      const matchQ = !q || String(s.userId).toLowerCase().includes(q.toLowerCase());
-      return matchFilter && matchQ;
-    });
-  }, [submissions, filter, q]);
-
-  const toggleGrade = (s) => {
-    setSubmissionStatus(s.key, s.step, !s.passed);
-    onRefresh();
-  };
-
-  const exportCsv = () => {
-    const header = ['student', 'mode', 'module', 'question', 'status', 'attempts', 'duration_ms', 'submitted_at', 'overridden'];
-    const body = submissions.map((s) => [
-      s.userId, s.mode, s.modId, s.step,
-      s.passed ? 'Passed' : 'Failed',
-      Array.isArray(s.attempts) ? s.attempts.length : 1,
-      s.durationMs ?? '',
-      s.timestamp || '',
-      s.gradedByInstructor ? 'yes' : '',
-    ]);
-    downloadCsv(`gradebook_${new Date().toISOString().slice(0, 10)}.csv`, [header, ...body]);
-  };
-
-  if (submissions.length === 0) {
-    return (
-      <div className="space-y-5">
-        <SectionHeader icon={ICONS.check} title="Grading" desc="Review student work and override pass / fail." />
-        <EmptyState icon={ICONS.check} title="No submissions to grade" hint="Student attempts recorded in this browser will appear here for review and manual override." />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      <SectionHeader icon={ICONS.check} title="Grading" desc="Review student work and override pass / fail."
-        action={<button onClick={exportCsv} className={btnPrimary}><Icon d={ICONS.doc} className="w-4 h-4" /> Export CSV</button>} />
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1 relative">
-          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><Icon d={ICONS.search} className="w-4 h-4" /></span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by student ID..." className={inputCls + ' pl-10'} />
-        </div>
-        <div className="flex gap-2">
-          {['all', 'passed', 'failed'].map((f) => (
-            <button key={f} onClick={() => setFilter(f)}
-              className={`px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-all outline-none
-                ${filter === f ? 'bg-[#03045e] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
-              {f}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.03)] divide-y divide-slate-50">
-        {rows.map((s, i) => {
-          const key = `${s.key}-${s.step}`;
-          const isOpen = expanded === key;
-          return (
-            <div key={key}>
-              <div className="px-5 sm:px-6 py-4 flex items-center gap-4">
-                <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${s.passed ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-500'}`}>
-                  <Icon d={s.passed ? ICONS.check : ICONS.close} className="w-4 h-4" />
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-800 text-sm truncate">Student {s.userId}</p>
-                  <p className="text-xs text-slate-400 truncate">{s.mode} · Module {s.modId} · Q{s.step} · {s.timestamp || '—'}{s.gradedByInstructor ? ' · overridden' : ''}</p>
-                </div>
-                <button onClick={() => setExpanded(isOpen ? null : key)} className="text-xs font-bold text-[#03045e] hover:underline shrink-0">{isOpen ? 'Hide' : 'Code'}</button>
-                <button onClick={() => toggleGrade(s)}
-                  className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-colors ${s.passed ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600' : 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700'}`}
-                  title="Toggle pass/fail">
-                  {s.passed ? 'Mark Fail' : 'Mark Pass'}
-                </button>
-              </div>
-              {isOpen && (
-                <div className="px-5 sm:px-6 pb-5">
-                  <div className="bg-[#0e1117] rounded-2xl p-4 overflow-x-auto custom-scrollbar border border-slate-800">
-                    <pre className="font-mono text-[13px] leading-relaxed text-slate-200 whitespace-pre-wrap"><code>{s.code || '-- (no code stored)'}</code></pre>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {rows.length === 0 && <div className="p-10 text-center text-sm text-slate-400">No submissions match this filter.</div>}
-      </div>
     </div>
   );
 }
@@ -429,16 +234,16 @@ function ContentManager({ content, onRefresh }) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {content.map((c) => (
-            <div key={c.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)] flex flex-col">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 border border-slate-200">Module {c.moduleId} · {c.type}</span>
-                <div className="flex gap-1.5">
-                  <button onClick={() => setDraft(c)} className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-[#03045e] hover:bg-blue-50 flex items-center justify-center transition-colors"><Icon d={ICONS.edit} className="w-4 h-4" /></button>
-                  <button onClick={() => remove(c.id)} className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors"><Icon d={ICONS.trash} className="w-4 h-4" /></button>
+            <div key={c.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)] flex flex-col transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_40px_rgb(0,0,0,0.07)]">
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 border border-slate-200">Module {c.moduleId} · {c.type}</span>
+                <div className="flex gap-1.5 shrink-0">
+                  <button onClick={() => setDraft(c)} className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-[#03045e] hover:bg-blue-50 active:scale-95 flex items-center justify-center transition-all"><Icon d={ICONS.edit} className="w-4 h-4" /></button>
+                  <button onClick={() => remove(c.id)} className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 active:scale-95 flex items-center justify-center transition-all"><Icon d={ICONS.trash} className="w-4 h-4" /></button>
                 </div>
               </div>
-              <h4 className="font-bold text-slate-800 mb-1">{c.title}</h4>
-              <p className="text-sm text-slate-500 line-clamp-3 whitespace-pre-wrap">{c.body || 'No description.'}</p>
+              <h4 className="font-bold text-slate-800 text-base sm:text-lg mb-1">{c.title}</h4>
+              <p className="text-sm sm:text-[15px] text-slate-500 line-clamp-3 whitespace-pre-wrap">{c.body || 'No description.'}</p>
             </div>
           ))}
         </div>
@@ -485,10 +290,12 @@ function ContentManager({ content, onRefresh }) {
 }
 
 // ── Problem & Exam Manager (สร้างโจทย์ / สร้างข้อสอบ) ────────
-function ProblemManager({ custom, onRefresh }) {
+function ProblemManager({ custom, examConfigs, onRefresh }) {
   const [draft, setDraft] = useState(null);
+  const [schedDraft, setSchedDraft] = useState(null); // exam schedule editor { moduleId, openAt, closeAt, timeLimitMin }
   const [typeFilter, setTypeFilter] = useState('all');
   const [q, setQ] = useState('');
+  const [collapsed, setCollapsed] = useState({}); // { [moduleId]: true } when a group is collapsed
 
   const builtinList = builtinProblems.map((p) => ({ ...p, builtin: true }));
   const all = [...custom.map((p) => ({ ...p, builtin: false })), ...builtinList];
@@ -498,8 +305,39 @@ function ProblemManager({ custom, onRefresh }) {
     return matchType && matchQ;
   });
 
+  // Group problems by module (category), following MODULES order; unknown modules appended.
+  const known = new Set(MODULES.map((m) => m.id));
+  const groups = MODULES
+    .map((m) => ({ id: m.id, name: m.name, items: rows.filter((p) => p.moduleId === m.id) }))
+    .concat(
+      [...new Set(rows.filter((p) => !known.has(p.moduleId)).map((p) => p.moduleId))]
+        .sort()
+        .map((id) => ({ id, name: `Module ${id}`, items: rows.filter((p) => p.moduleId === id) }))
+    )
+    .filter((g) => g.items.length);
+  const toggleGroup = (id) => setCollapsed((c) => ({ ...c, [id]: !c[id] }));
+
+  // Exam schedule (per module) — merged from the former Exam Control section.
+  const toInput = (ms) => { if (!ms) return ''; return new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  const fromInput = (str) => (str ? new Date(str).getTime() : null);
+  const fmt = (ms) => (ms ? new Date(ms).toLocaleString() : '—');
+  const openSchedule = (modId) => {
+    const c = (examConfigs || {})[modId] || {};
+    setSchedDraft({ moduleId: modId, openAt: c.openAt || null, closeAt: c.closeAt || null, timeLimitMin: c.timeLimitMin || 60 });
+  };
+  const saveSchedule = () => {
+    setExamConfig(schedDraft.moduleId, {
+      openAt: schedDraft.openAt || null,
+      closeAt: schedDraft.closeAt || null,
+      timeLimitMin: schedDraft.timeLimitMin ? Number(schedDraft.timeLimitMin) : null,
+    });
+    setSchedDraft(null);
+    onRefresh();
+  };
+  const clearSchedule = (modId) => { if (window.confirm('Clear the exam schedule for this module?')) { setExamConfig(modId, null); onRefresh(); } };
+
   const openNew = (type = 'COURSE') => setDraft({
-    type, moduleId: '02', difficulty: 'beginner', table: 'products',
+    type, moduleId: '02', table: 'products',
     title: '', description: '', goldenQuery: '', starterCode: 'SELECT ', requirementsText: '',
   });
   const openEdit = (p) => setDraft({ ...p, requirementsText: (p.requirements || []).join('\n') });
@@ -512,7 +350,6 @@ function ProblemManager({ custom, onRefresh }) {
       moduleId: draft.moduleId,
       title: draft.title.trim(),
       category: draft.category || `Custom · ${draft.type}`,
-      difficulty: draft.difficulty,
       description: draft.description,
       table: draft.table,
       goldenQuery: draft.goldenQuery.trim(),
@@ -529,7 +366,7 @@ function ProblemManager({ custom, onRefresh }) {
       <SectionHeader
         icon={ICONS.code}
         title="Problems & Exams"
-        desc="Author problems and exams — they appear instantly in the student workspace."
+        desc="Author problems & exams grouped by module — set each module's exam schedule inline."
         action={<div className="flex gap-2">
           <button onClick={() => openNew('EXAM')} className={btnGhost + ' bg-white border border-slate-200 shadow-sm'}><Icon d={ICONS.plus} className="w-4 h-4" /> New Exam</button>
           <button onClick={() => openNew('COURSE')} className={btnPrimary}><Icon d={ICONS.plus} className="w-4 h-4" /> New Problem</button>
@@ -544,7 +381,7 @@ function ProblemManager({ custom, onRefresh }) {
         <div className="flex gap-2">
           {['all', 'COURSE', 'ASSIGNMENT', 'EXAM'].map((t) => (
             <button key={t} onClick={() => setTypeFilter(t)}
-              className={`px-3.5 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all outline-none
+              className={`px-3.5 py-3 rounded-xl font-bold text-[11px] sm:text-xs uppercase tracking-widest transition-all outline-none active:scale-95
                 ${typeFilter === t ? 'bg-[#03045e] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
               {t}
             </button>
@@ -552,30 +389,68 @@ function ProblemManager({ custom, onRefresh }) {
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.03)] divide-y divide-slate-50">
-        {rows.map((p) => (
-          <div key={(p.builtin ? 'b' : 'c') + p.id} className="px-5 sm:px-6 py-4 flex items-center gap-4 hover:bg-slate-50/50 transition-colors">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-bold text-slate-800 text-sm truncate">{p.title}</p>
-                {!p.builtin && <span className="text-[9px] font-bold uppercase tracking-widest text-[#f48c06] bg-[#FF9900]/10 border border-[#FF9900]/20 px-1.5 py-0.5 rounded">Custom</span>}
+      {groups.length === 0 ? (
+        <EmptyState icon={ICONS.code} title="No problems match" hint="Adjust the search or type filter, or create a new problem." />
+      ) : (
+        <div className="space-y-4">
+          {groups.map((g) => {
+            const open = !collapsed[g.id];
+            const exams = g.items.filter((p) => p.type === 'EXAM').length;
+            const cfg = examConfigs?.[g.id];
+            const scheduled = !!cfg && (cfg.openAt || cfg.closeAt || cfg.timeLimitMin);
+            return (
+              <div key={g.id} className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
+                <button onClick={() => toggleGroup(g.id)} className="w-full px-5 sm:px-6 py-4 flex items-center gap-3.5 bg-slate-50/60 hover:bg-slate-100/60 active:bg-slate-100 transition-colors text-left outline-none">
+                  <div className="w-11 h-11 rounded-xl bg-[#03045e]/10 text-[#03045e] flex items-center justify-center font-bold shrink-0 text-base tabular-nums">{g.id}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-slate-800 text-sm sm:text-base truncate">Module {g.id} · {g.name}</p>
+                    <p className="text-xs sm:text-sm text-slate-400">{g.items.length} problem{g.items.length !== 1 ? 's' : ''}{exams ? ` · ${exams} exam${exams !== 1 ? 's' : ''}` : ''}</p>
+                  </div>
+                  <Icon d={ICONS.chevron} className={`w-5 h-5 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+                </button>
+                {open && (
+                  <div className="border-t border-slate-100">
+                    {exams > 0 && (
+                      <div className="px-5 sm:px-6 py-3.5 flex items-center gap-3 bg-[#FF9900]/5 border-b border-[#FF9900]/15">
+                        <span className="w-9 h-9 rounded-lg bg-[#FF9900]/15 text-[#CC7A00] flex items-center justify-center shrink-0"><Icon d={ICONS.doc} className="w-4 h-4" /></span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-slate-700">Exam schedule</p>
+                          <p className="text-xs text-slate-400 truncate">{scheduled ? `opens ${fmt(cfg.openAt)} · closes ${fmt(cfg.closeAt)} · limit ${cfg.timeLimitMin || '—'} min` : 'No schedule · open, 60 min default'}</p>
+                        </div>
+                        <span className={`hidden sm:inline shrink-0 text-[11px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-md border ${scheduled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>{scheduled ? 'Scheduled' : 'Default'}</span>
+                        <button onClick={() => openSchedule(g.id)} className="shrink-0 text-sm font-bold text-[#03045e] hover:underline active:scale-95 transition-transform">Edit</button>
+                        {scheduled && <button onClick={() => clearSchedule(g.id)} className="shrink-0 w-9 h-9 rounded-lg bg-white border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 active:scale-95 flex items-center justify-center transition-all"><Icon d={ICONS.trash} className="w-4 h-4" /></button>}
+                      </div>
+                    )}
+                    <div className="divide-y divide-slate-50">
+                      {g.items.map((p) => (
+                        <div key={(p.builtin ? 'b' : 'c') + p.id} className="px-5 sm:px-6 py-4 flex items-center gap-4 hover:bg-slate-50/50 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-bold text-slate-800 text-sm sm:text-base truncate">{p.title}</p>
+                              {!p.builtin && <span className="text-[10px] font-bold uppercase tracking-widest text-[#f48c06] bg-[#FF9900]/10 border border-[#FF9900]/20 px-1.5 py-0.5 rounded">Custom</span>}
+                            </div>
+                            <p className="text-xs sm:text-sm text-slate-400 truncate">table {p.table || '—'}</p>
+                          </div>
+                          <span className={`hidden sm:inline shrink-0 text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border ${TYPE_STYLES[p.type] || 'bg-slate-50 border-slate-200 text-slate-500'}`}>{p.type}</span>
+                          {p.builtin ? (
+                            <span className="shrink-0 text-[11px] font-semibold text-slate-300 uppercase tracking-widest w-[80px] text-right">Built-in</span>
+                          ) : (
+                            <div className="shrink-0 flex gap-1.5 w-[80px] justify-end">
+                              <button onClick={() => openEdit(p)} className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-[#03045e] hover:bg-blue-50 active:scale-95 flex items-center justify-center transition-all"><Icon d={ICONS.edit} className="w-4 h-4" /></button>
+                              <button onClick={() => remove(p.id)} className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 active:scale-95 flex items-center justify-center transition-all"><Icon d={ICONS.trash} className="w-4 h-4" /></button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-              <p className="text-xs text-slate-400 truncate">Module {p.moduleId} · table {p.table || '—'}</p>
-            </div>
-            <span className={`hidden sm:inline shrink-0 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border ${TYPE_STYLES[p.type] || 'bg-slate-50 border-slate-200 text-slate-500'}`}>{p.type}</span>
-            <span className={`hidden md:inline shrink-0 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border ${DIFF_STYLES[p.difficulty] || 'bg-slate-50 border-slate-200 text-slate-500'}`}>{p.difficulty || 'n/a'}</span>
-            {p.builtin ? (
-              <span className="shrink-0 text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-[72px] text-right">Built-in</span>
-            ) : (
-              <div className="shrink-0 flex gap-1.5 w-[72px] justify-end">
-                <button onClick={() => openEdit(p)} className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-[#03045e] hover:bg-blue-50 flex items-center justify-center transition-colors"><Icon d={ICONS.edit} className="w-4 h-4" /></button>
-                <button onClick={() => remove(p.id)} className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors"><Icon d={ICONS.trash} className="w-4 h-4" /></button>
-              </div>
-            )}
-          </div>
-        ))}
-        {rows.length === 0 && <div className="p-10 text-center text-sm text-slate-400">No problems match this filter.</div>}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {draft && (
         <Modal
@@ -596,7 +471,7 @@ function ProblemManager({ custom, onRefresh }) {
             <label className={labelCls}>Description</label>
             <textarea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={2} placeholder="Explain the task for the student..." className={inputCls + ' resize-none'} />
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div>
               <label className={labelCls}>Type</label>
               <select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })} className={inputCls}>
@@ -609,14 +484,6 @@ function ProblemManager({ custom, onRefresh }) {
               <label className={labelCls}>Module</label>
               <select value={draft.moduleId} onChange={(e) => setDraft({ ...draft, moduleId: e.target.value })} className={inputCls}>
                 {MODULES.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Difficulty</label>
-              <select value={draft.difficulty} onChange={(e) => setDraft({ ...draft, difficulty: e.target.value })} className={inputCls}>
-                <option value="beginner">Beginner</option>
-                <option value="intermediate">Intermediate</option>
-                <option value="advanced">Advanced</option>
               </select>
             </div>
             <div>
@@ -636,6 +503,34 @@ function ProblemManager({ custom, onRefresh }) {
               <textarea value={draft.goldenQuery} onChange={(e) => setDraft({ ...draft, goldenQuery: e.target.value })} rows={4} placeholder="SELECT * FROM products;" className="w-full bg-transparent p-4 font-mono text-[13px] text-slate-200 placeholder:text-slate-600 focus:outline-none resize-none" />
             </div>
           </div>
+        </Modal>
+      )}
+
+      {schedDraft && (
+        <Modal
+          title={`Exam Schedule · Module ${schedDraft.moduleId}`}
+          subtitle="Applies live to the student exam workspace"
+          onClose={() => setSchedDraft(null)}
+          footer={<>
+            <button onClick={() => setSchedDraft(null)} className={btnGhost}>Cancel</button>
+            <button onClick={saveSchedule} className={btnAccent}>Save Schedule</button>
+          </>}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Opens At</label>
+              <input type="datetime-local" value={toInput(schedDraft.openAt)} onChange={(e) => setSchedDraft({ ...schedDraft, openAt: fromInput(e.target.value) })} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Closes At</label>
+              <input type="datetime-local" value={toInput(schedDraft.closeAt)} onChange={(e) => setSchedDraft({ ...schedDraft, closeAt: fromInput(e.target.value) })} className={inputCls} />
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Time Limit <span className="normal-case tracking-normal text-slate-400 font-medium">(minutes)</span></label>
+            <input type="number" min="1" value={schedDraft.timeLimitMin || ''} onChange={(e) => setSchedDraft({ ...schedDraft, timeLimitMin: e.target.value })} placeholder="60" className={inputCls} />
+          </div>
+          <p className="text-xs text-slate-400">Leave a field empty to disable that rule. The time limit counts from the moment each student starts the module exam.</p>
         </Modal>
       )}
     </div>
@@ -669,19 +564,19 @@ function AnnouncementManager({ items, onRefresh, author }) {
       ) : (
         <div className="space-y-3">
           {items.map((a) => (
-            <div key={a.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)] flex items-start gap-4">
-              <span className={`w-2.5 h-2.5 rounded-full mt-2 shrink-0 ${a.priority === 'high' ? 'bg-rose-500' : a.priority === 'low' ? 'bg-emerald-500' : 'bg-[#f48c06]'}`}></span>
+            <div key={a.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)] flex items-start gap-4 transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_40px_rgb(0,0,0,0.07)]">
+              <span className={`w-2.5 h-2.5 rounded-full mt-2.5 shrink-0 ${a.priority === 'high' ? 'bg-rose-500' : a.priority === 'low' ? 'bg-emerald-500' : 'bg-[#f48c06]'}`}></span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h4 className="font-bold text-slate-800">{a.title}</h4>
-                  {a.pinned && <span className="text-[9px] font-bold uppercase tracking-widest text-[#03045e] bg-[#03045e]/5 border border-[#03045e]/10 px-1.5 py-0.5 rounded">Pinned</span>}
-                  <span className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${a.priority === 'high' ? 'bg-rose-50 border-rose-200 text-rose-600' : a.priority === 'low' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-600'}`}>{a.priority}</span>
+                  <h4 className="font-bold text-slate-800 text-base sm:text-lg">{a.title}</h4>
+                  {a.pinned && <span className="text-[10px] font-bold uppercase tracking-widest text-[#03045e] bg-[#03045e]/5 border border-[#03045e]/10 px-1.5 py-0.5 rounded">Pinned</span>}
+                  <span className={`text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${a.priority === 'high' ? 'bg-rose-50 border-rose-200 text-rose-600' : a.priority === 'low' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-600'}`}>{a.priority}</span>
                 </div>
-                <p className="text-sm text-slate-500 mt-1 whitespace-pre-wrap">{a.body}</p>
+                <p className="text-sm sm:text-[15px] text-slate-500 mt-1 whitespace-pre-wrap">{a.body}</p>
               </div>
               <div className="flex gap-1.5 shrink-0">
-                <button onClick={() => setDraft(a)} className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-[#03045e] hover:bg-blue-50 flex items-center justify-center transition-colors"><Icon d={ICONS.edit} className="w-4 h-4" /></button>
-                <button onClick={() => remove(a.id)} className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors"><Icon d={ICONS.trash} className="w-4 h-4" /></button>
+                <button onClick={() => setDraft(a)} className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-[#03045e] hover:bg-blue-50 active:scale-95 flex items-center justify-center transition-all"><Icon d={ICONS.edit} className="w-4 h-4" /></button>
+                <button onClick={() => remove(a.id)} className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 active:scale-95 flex items-center justify-center transition-all"><Icon d={ICONS.trash} className="w-4 h-4" /></button>
               </div>
             </div>
           ))}
@@ -725,269 +620,245 @@ function AnnouncementManager({ items, onRefresh, author }) {
   );
 }
 
-// ── Students / Roster (per-student progress) ────────────────
-function Students({ submissions }) {
+// ── Students & Analytics (roster + class performance) ───────
+function StudentsAnalytics({ submissions }) {
   const [q, setQ] = useState('');
+  const [sort, setSort] = useState('recent');
+  const [filter, setFilter] = useState('all');
   const [openId, setOpenId] = useState(null);
+  const [openCat, setOpenCat] = useState(null); // selected module inside the student modal
 
-  const roster = useMemo(() => {
+  const data = useMemo(() => {
     const map = new Map();
+    const byModule = {};
+    const byMode = { COURSE: 0, ASSIGNMENT: 0, EXAM: 0 };
+    const durations = [];
+    let passed = 0;
     submissions.forEach((s) => {
       const id = String(s.userId);
       let r = map.get(id);
       if (!r) { r = { userId: id, subs: 0, passed: 0, problems: new Set(), modules: new Set(), exams: 0, last: 0 }; map.set(id, r); }
       r.subs += 1;
-      if (s.passed) r.passed += 1;
+      if (s.passed) { r.passed += 1; passed += 1; }
       r.problems.add(`${s.mode}-${s.modId}-${s.step}`);
       r.modules.add(s.modId);
       if (s.mode === 'EXAM') r.exams += 1;
       const t = s.submittedAt || Date.parse(s.timestamp) || 0;
       if (t > r.last) r.last = t;
-    });
-    return [...map.values()]
-      .map((r) => ({ ...r, problems: r.problems.size, modules: r.modules.size, passRate: r.subs ? Math.round((r.passed / r.subs) * 100) : 0 }))
-      .sort((a, b) => b.last - a.last);
-  }, [submissions]);
 
-  const filtered = roster.filter((r) => !q || r.userId.toLowerCase().includes(q.toLowerCase()));
-  const detail = useMemo(
-    () => (openId ? submissions.filter((s) => String(s.userId) === openId).sort((a, b) => (b.submittedAt || Date.parse(b.timestamp) || 0) - (a.submittedAt || Date.parse(a.timestamp) || 0)) : []),
-    [openId, submissions]
-  );
-
-  if (roster.length === 0) {
-    return (
-      <div className="space-y-5">
-        <SectionHeader icon={ICONS.users} title="Students" desc="Per-student progress from recorded submissions." />
-        <EmptyState icon={ICONS.users} title="No students yet" hint="Once students submit answers in this browser, their progress appears here." />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      <SectionHeader icon={ICONS.users} title="Students" desc="Per-student progress from recorded submissions." />
-      <div className="relative">
-        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><Icon d={ICONS.search} className="w-4 h-4" /></span>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search student ID..." className={inputCls + ' pl-10'} />
-      </div>
-      <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.03)] divide-y divide-slate-50">
-        {filtered.map((r) => (
-          <button key={r.userId} onClick={() => setOpenId(r.userId)} className="w-full px-5 sm:px-6 py-4 flex items-center gap-4 text-left hover:bg-slate-50/60 transition-colors outline-none">
-            <div className="w-10 h-10 rounded-full bg-[#03045e]/10 text-[#03045e] flex items-center justify-center font-bold shrink-0 uppercase">{r.userId.slice(0, 2)}</div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-slate-800 text-sm truncate">Student {r.userId}</p>
-              <p className="text-xs text-slate-400 truncate">{r.problems} problems · {r.modules} modules · {r.exams} exam subs · last {r.last ? new Date(r.last).toLocaleDateString() : '—'}</p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="font-bold text-slate-900 tabular-nums">{r.passRate}%</p>
-              <p className="text-[10px] text-slate-400 uppercase tracking-widest">{r.passed}/{r.subs} pass</p>
-            </div>
-          </button>
-        ))}
-        {filtered.length === 0 && <div className="p-10 text-center text-sm text-slate-400">No students match.</div>}
-      </div>
-
-      {openId && (
-        <Modal wide title={`Student ${openId}`} subtitle={`${detail.length} submission${detail.length !== 1 ? 's' : ''}`} onClose={() => setOpenId(null)} footer={<button onClick={() => setOpenId(null)} className={btnGhost}>Close</button>}>
-          <div className="space-y-2.5">
-            {detail.map((s, i) => (
-              <div key={i} className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="px-4 py-2.5 flex items-center gap-3 bg-slate-50/60">
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${s.passed ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-                  <span className="text-xs font-semibold text-slate-700 flex-1 truncate">{s.mode} · Module {s.modId} · Q{s.step}</span>
-                  <span className="text-[11px] text-slate-400 shrink-0">{s.timestamp || '—'}</span>
-                </div>
-                <pre className="bg-[#0e1117] p-3.5 overflow-x-auto custom-scrollbar text-[12.5px] font-mono text-slate-200 whitespace-pre-wrap"><code>{s.code || '-- (no code)'}</code></pre>
-              </div>
-            ))}
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-// ── Analytics (class performance from submissions) ──────────
-function Analytics({ submissions }) {
-  const a = useMemo(() => {
-    const total = submissions.length;
-    const passed = submissions.filter((s) => s.passed).length;
-    const students = new Set(submissions.map((s) => String(s.userId))).size;
-    const durations = submissions.map((s) => s.durationMs).filter((d) => typeof d === 'number');
-    const avgMs = durations.length ? Math.round(durations.reduce((x, y) => x + y, 0) / durations.length) : null;
-
-    const byModule = {};
-    const byMode = { COURSE: 0, ASSIGNMENT: 0, EXAM: 0 };
-    const probMap = new Map();
-    submissions.forEach((s) => {
       byModule[s.modId] = byModule[s.modId] || { total: 0, passed: 0 };
       byModule[s.modId].total += 1;
       if (s.passed) byModule[s.modId].passed += 1;
       if (byMode[s.mode] != null) byMode[s.mode] += 1;
-      const pk = `${s.mode}|${s.modId}|${s.step}`;
-      const p = probMap.get(pk) || { mode: s.mode, modId: s.modId, step: s.step, total: 0, passed: 0 };
-      p.total += 1;
-      if (s.passed) p.passed += 1;
-      probMap.set(pk, p);
+      if (typeof s.durationMs === 'number') durations.push(s.durationMs);
     });
+    const roster = [...map.values()]
+      .map((r) => ({ ...r, problems: r.problems.size, modules: r.modules.size, passRate: r.subs ? Math.round((r.passed / r.subs) * 100) : 0 }))
+      .sort((a, b) => b.last - a.last);
     const modules = Object.entries(byModule)
       .map(([id, v]) => ({ id, ...v, rate: v.total ? Math.round((v.passed / v.total) * 100) : 0 }))
       .sort((x, y) => x.id.localeCompare(y.id));
-    const hardest = [...probMap.values()]
-      .map((p) => ({ ...p, rate: p.total ? Math.round((p.passed / p.total) * 100) : 0 }))
-      .sort((x, y) => x.rate - y.rate || y.total - x.total)
-      .slice(0, 8);
-    return { total, passed, students, avgMs, modules, byMode, hardest, passRate: total ? Math.round((passed / total) * 100) : 0 };
+    const total = submissions.length;
+    const avgMs = durations.length ? Math.round(durations.reduce((x, y) => x + y, 0) / durations.length) : null;
+    return {
+      roster, modules, byMode,
+      total, students: map.size, passRate: total ? Math.round((passed / total) * 100) : 0, avgMs,
+    };
   }, [submissions]);
 
-  if (a.total === 0) {
+  const filtered = useMemo(() => {
+    let list = data.roster;
+    if (filter === 'atrisk') list = list.filter((r) => r.passRate < 50);
+    else if (filter === 'top') list = list.filter((r) => r.passRate >= 80);
+    if (q) { const query = q.toLowerCase(); list = list.filter((r) => r.userId.toLowerCase().includes(query)); }
+    const by = {
+      recent: (a, b) => b.last - a.last,
+      passLow: (a, b) => a.passRate - b.passRate || b.subs - a.subs,
+      passHigh: (a, b) => b.passRate - a.passRate || b.subs - a.subs,
+      subs: (a, b) => b.subs - a.subs,
+      id: (a, b) => a.userId.localeCompare(b.userId),
+    };
+    return [...list].sort(by[sort] || by.recent);
+  }, [data.roster, filter, q, sort]);
+  const detail = useMemo(
+    () => (openId ? submissions.filter((s) => String(s.userId) === openId).sort((a, b) => (b.submittedAt || Date.parse(b.timestamp) || 0) - (a.submittedAt || Date.parse(a.timestamp) || 0)) : []),
+    [openId, submissions]
+  );
+  // Group one student's submissions by module (category) for the drill-down modal.
+  const groups = useMemo(() => {
+    const m = new Map();
+    detail.forEach((s) => {
+      const id = String(s.modId);
+      let g = m.get(id);
+      if (!g) { g = { modId: id, subs: [], passed: 0 }; m.set(id, g); }
+      g.subs.push(s);
+      if (s.passed) g.passed += 1;
+    });
+    return [...m.values()]
+      .map((g) => ({ ...g, count: g.subs.length, rate: g.subs.length ? Math.round((g.passed / g.subs.length) * 100) : 0 }))
+      .sort((a, b) => a.modId.localeCompare(b.modId));
+  }, [detail]);
+  const catSubs = openCat ? (groups.find((g) => g.modId === openCat)?.subs || []) : [];
+  const openStudent = (id) => { setOpenId(id); setOpenCat(null); };
+  const closeStudent = () => { setOpenId(null); setOpenCat(null); };
+
+  if (submissions.length === 0) {
     return (
       <div className="space-y-5">
-        <SectionHeader icon={ICONS.chart} title="Analytics" desc="Class performance from recorded submissions." />
-        <EmptyState icon={ICONS.chart} title="No data yet" hint="Analytics populate as students submit answers." />
+        <SectionHeader icon={ICONS.users} title="Students & Analytics" desc="Per-student progress and class performance from recorded submissions." />
+        <EmptyState icon={ICONS.users} title="No student data yet" hint="Once students submit answers in this browser, their progress and class analytics appear here." />
       </div>
     );
   }
 
+  const cards = [
+    { label: 'Students', value: data.students, tint: 'text-[#03045e] bg-[#03045e]/10', icon: ICONS.users },
+    { label: 'Submissions', value: data.total, tint: 'text-indigo-600 bg-indigo-50', icon: ICONS.check },
+    { label: 'Pass Rate', value: `${data.passRate}%`, tint: 'text-emerald-600 bg-emerald-50', icon: ICONS.chart },
+    { label: 'Avg Verify', value: data.avgMs != null ? `${data.avgMs} ms` : '—', tint: 'text-[#CC7A00] bg-[#FF9900]/10', icon: ICONS.doc },
+  ];
+
   const Bar = ({ label, note, rate, tone = '#03045e' }) => (
     <div>
-      <div className="flex justify-between text-xs mb-1 gap-3">
+      <div className="flex justify-between text-sm mb-1.5 gap-3">
         <span className="font-semibold text-slate-600 truncate">{label}</span>
         <span className="text-slate-400 tabular-nums shrink-0">{rate}%{note ? ` · ${note}` : ''}</span>
       </div>
-      <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${rate}%`, background: tone }}></div></div>
+      <div className="h-3 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${rate}%`, background: tone }}></div></div>
     </div>
   );
-
-  const stat = [
-    { label: 'Submissions', value: a.total },
-    { label: 'Students', value: a.students },
-    { label: 'Pass Rate', value: `${a.passRate}%` },
-    { label: 'Avg Verify', value: a.avgMs != null ? `${a.avgMs} ms` : '—' },
-  ];
 
   return (
     <div className="space-y-6">
-      <SectionHeader icon={ICONS.chart} title="Analytics" desc="Class performance from recorded submissions." />
+      <SectionHeader icon={ICONS.users} title="Students & Analytics" desc="Per-student progress and class performance from recorded submissions." />
+
+      {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stat.map((c) => (
-          <div key={c.label} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
-            <p className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">{c.value}</p>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{c.label}</p>
+        {cards.map((c) => (
+          <div key={c.label} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_40px_rgb(0,0,0,0.07)]">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${c.tint}`}>
+              <Icon d={c.icon} className="w-5 h-5" />
+            </div>
+            <p className="text-3xl sm:text-4xl font-bold text-slate-900 tabular-nums">{c.value}</p>
+            <p className="text-[11px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{c.label}</p>
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.03)] space-y-4">
-          <h3 className="font-bold text-slate-800">Pass Rate by Module</h3>
-          {a.modules.map((m) => <Bar key={m.id} label={`Module ${m.id} · ${moduleName(m.id)}`} note={`${m.passed}/${m.total}`} rate={m.rate} />)}
-        </div>
-        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.03)] space-y-4">
-          <h3 className="font-bold text-slate-800">Hardest Problems <span className="text-xs font-medium text-slate-400">(lowest pass rate)</span></h3>
-          {a.hardest.map((p, i) => <Bar key={i} label={`${p.mode} · M${p.modId} · Q${p.step}`} note={`${p.passed}/${p.total}`} rate={p.rate} tone="#e11d48" />)}
-        </div>
-      </div>
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
-        <h3 className="font-bold text-slate-800 mb-4">Submissions by Type</h3>
-        <div className="grid grid-cols-3 gap-4">
-          {Object.entries(a.byMode).map(([k, v]) => (
-            <div key={k} className={`rounded-2xl p-4 border ${TYPE_STYLES[k] || 'bg-slate-50 border-slate-200 text-slate-500'}`}>
-              <p className="text-2xl font-bold tabular-nums">{v}</p>
-              <p className="text-[10px] font-bold uppercase tracking-widest mt-1">{k}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
-// ── Exam Control (per-module schedule + time limit) ─────────
-function ExamControl({ custom, examConfigs, onRefresh }) {
-  const [draft, setDraft] = useState(null); // { moduleId, openAt, closeAt, timeLimitMin }
-
-  const examCount = (modId) =>
-    builtinProblems.filter((p) => p.type === 'EXAM' && p.moduleId === modId).length +
-    custom.filter((p) => p.type === 'EXAM' && p.moduleId === modId).length;
-
-  // epoch ms ↔ <input type="datetime-local"> local wall-clock string
-  const toInput = (ms) => {
-    if (!ms) return '';
-    return new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-  };
-  const fromInput = (str) => (str ? new Date(str).getTime() : null);
-  const fmt = (ms) => (ms ? new Date(ms).toLocaleString() : '—');
-
-  const openEdit = (modId) => {
-    const c = examConfigs[modId] || {};
-    setDraft({ moduleId: modId, openAt: c.openAt || null, closeAt: c.closeAt || null, timeLimitMin: c.timeLimitMin || 60 });
-  };
-  const save = () => {
-    setExamConfig(draft.moduleId, {
-      openAt: draft.openAt || null,
-      closeAt: draft.closeAt || null,
-      timeLimitMin: draft.timeLimitMin ? Number(draft.timeLimitMin) : null,
-    });
-    setDraft(null);
-    onRefresh();
-  };
-  const clearCfg = (modId) => { if (window.confirm('Clear the exam schedule for this module?')) { setExamConfig(modId, null); onRefresh(); } };
-
-  return (
-    <div className="space-y-4">
-      <SectionHeader icon={ICONS.doc} title="Exam Control" desc="Schedule open / close windows and a time limit per module exam — enforced live in the student workspace." />
-      <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.03)] divide-y divide-slate-50">
-        {MODULES.map((m) => {
-          const c = examConfigs[m.id];
-          const n = examCount(m.id);
-          const scheduled = !!c && (c.openAt || c.closeAt || c.timeLimitMin);
-          return (
-            <div key={m.id} className="px-5 sm:px-6 py-4 flex items-center gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-slate-800 text-sm truncate">Module {m.id} · {m.name}</p>
-                <p className="text-xs text-slate-400 truncate">
-                  {n} exam problem{n !== 1 ? 's' : ''}
-                  {scheduled ? ` · opens ${fmt(c.openAt)} · closes ${fmt(c.closeAt)} · limit ${c.timeLimitMin || '—'} min` : ' · no schedule (open, 60 min default)'}
-                </p>
+      {/* Roster (2/3) + analytics sidebar (1/3) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.03)] overflow-hidden flex flex-col">
+          <div className="px-5 sm:px-6 py-4 border-b border-slate-100 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h3 className="font-bold text-slate-800 text-base sm:text-lg shrink-0">Student Roster <span className="text-slate-400 font-medium text-sm">· {filtered.length}/{data.roster.length}</span></h3>
+              <div className="relative sm:w-56">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon d={ICONS.search} className="w-4 h-4" /></span>
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search student ID..." className="w-full bg-slate-50 border border-slate-200 pl-9 pr-3 py-2.5 rounded-xl text-sm sm:text-base font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#03045e] focus:ring-1 focus:ring-[#03045e] transition-colors" />
               </div>
-              <span className={`hidden sm:inline shrink-0 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-md border ${scheduled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
-                {scheduled ? 'Scheduled' : 'Default'}
-              </span>
-              <button onClick={() => openEdit(m.id)} className="shrink-0 text-xs font-bold text-[#03045e] hover:underline">Edit</button>
-              {scheduled && (
-                <button onClick={() => clearCfg(m.id)} className="shrink-0 w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors"><Icon d={ICONS.trash} className="w-4 h-4" /></button>
-              )}
             </div>
-          );
-        })}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex gap-1.5">
+                {[['all', 'All'], ['atrisk', 'At-risk'], ['top', 'Top']].map(([f, lbl]) => (
+                  <button key={f} onClick={() => setFilter(f)}
+                    className={`px-3 py-2 rounded-lg font-bold text-[11px] sm:text-xs uppercase tracking-widest transition-all outline-none active:scale-95 ${filter === f ? 'bg-[#03045e] text-white shadow-sm' : 'bg-slate-50 border border-slate-200 text-slate-500 hover:bg-slate-100'}`}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              <select value={sort} onChange={(e) => setSort(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs sm:text-sm font-bold text-slate-600 focus:outline-none focus:border-[#03045e] cursor-pointer">
+                <option value="recent">Recent activity</option>
+                <option value="passLow">Pass rate · low→high</option>
+                <option value="passHigh">Pass rate · high→low</option>
+                <option value="subs">Most submissions</option>
+                <option value="id">Student ID</option>
+              </select>
+            </div>
+          </div>
+          <div className="divide-y divide-slate-50 max-h-[540px] overflow-y-auto custom-scrollbar">
+            {filtered.map((r) => (
+              <button key={r.userId} onClick={() => openStudent(r.userId)} className="w-full px-5 sm:px-6 py-4 flex items-center gap-4 text-left hover:bg-slate-50/60 active:bg-slate-100/60 transition-colors outline-none">
+                <div className="w-11 h-11 rounded-full bg-[#03045e]/10 text-[#03045e] flex items-center justify-center font-bold shrink-0 uppercase text-sm">{r.userId.slice(0, 2)}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-slate-800 text-sm sm:text-base truncate">Student {r.userId}</p>
+                  <p className="text-xs sm:text-sm text-slate-400 truncate">{r.problems} problems · {r.modules} modules · {r.exams} exam subs · last {r.last ? new Date(r.last).toLocaleDateString() : '—'}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-bold text-slate-900 tabular-nums text-base sm:text-lg">{r.passRate}%</p>
+                  <p className="text-[11px] text-slate-400 uppercase tracking-widest">{r.passed}/{r.subs} pass</p>
+                </div>
+              </button>
+            ))}
+            {filtered.length === 0 && <div className="p-10 text-center text-sm text-slate-400">No students match.</div>}
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.03)] space-y-4">
+            <h3 className="font-bold text-slate-800 text-base sm:text-lg">Pass Rate by Module</h3>
+            {data.modules.length ? data.modules.map((m) => <Bar key={m.id} label={`Module ${m.id} · ${moduleName(m.id)}`} note={`${m.passed}/${m.total}`} rate={m.rate} />) : <p className="text-sm text-slate-400">No module data.</p>}
+          </div>
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
+            <h3 className="font-bold text-slate-800 text-base sm:text-lg mb-4">Submissions by Type</h3>
+            <div className="grid grid-cols-3 gap-3">
+              {Object.entries(data.byMode).map(([k, v]) => (
+                <div key={k} className={`rounded-2xl p-4 border text-center ${TYPE_STYLES[k] || 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+                  <p className="text-2xl sm:text-3xl font-bold tabular-nums">{v}</p>
+                  <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-widest mt-1">{k}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {draft && (
+      {openId && (
         <Modal
-          title={`Exam Schedule · Module ${draft.moduleId}`}
-          subtitle="Applies live to the student exam workspace"
-          onClose={() => setDraft(null)}
-          footer={<>
-            <button onClick={() => setDraft(null)} className={btnGhost}>Cancel</button>
-            <button onClick={save} className={btnAccent}>Save Schedule</button>
-          </>}
+          wide
+          title={openCat ? `Student ${openId} · Module ${openCat}` : `Student ${openId}`}
+          subtitle={openCat
+            ? `${moduleName(openCat)} · ${catSubs.length} quer${catSubs.length !== 1 ? 'ies' : 'y'}`
+            : `${detail.length} submission${detail.length !== 1 ? 's' : ''} across ${groups.length} module${groups.length !== 1 ? 's' : ''}`}
+          onClose={closeStudent}
+          footer={openCat
+            ? <button onClick={() => setOpenCat(null)} className={btnGhost}><Icon d={ICONS.close} className="w-4 h-4" /> Back to modules</button>
+            : <button onClick={closeStudent} className={btnGhost}>Close</button>}
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls}>Opens At</label>
-              <input type="datetime-local" value={toInput(draft.openAt)} onChange={(e) => setDraft({ ...draft, openAt: fromInput(e.target.value) })} className={inputCls} />
+          {!openCat ? (
+            /* Level 1 — categories (modules) */
+            groups.length === 0 ? (
+              <div className="p-6 text-center text-sm text-slate-400">No submissions for this student.</div>
+            ) : (
+              <div className="space-y-2.5">
+                {groups.map((g) => (
+                  <button key={g.modId} onClick={() => setOpenCat(g.modId)} className="w-full flex items-center gap-4 px-4 py-3.5 border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 active:scale-[.99] transition-all text-left outline-none">
+                    <div className="w-11 h-11 rounded-xl bg-[#03045e]/10 text-[#03045e] flex items-center justify-center font-bold shrink-0 text-base tabular-nums">{g.modId}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-slate-800 text-sm sm:text-base truncate">Module {g.modId} · {moduleName(g.modId)}</p>
+                      <p className="text-xs sm:text-sm text-slate-400">{g.count} quer{g.count !== 1 ? 'ies' : 'y'} · {g.passed}/{g.count} pass</p>
+                    </div>
+                    <span className={`shrink-0 text-xs font-bold tabular-nums px-2 py-0.5 rounded-md border ${g.rate >= 80 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : g.rate < 50 ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-amber-50 border-amber-200 text-amber-600'}`}>{g.rate}%</span>
+                    <Icon d={ICONS.code} className="w-5 h-5 text-slate-300 shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )
+          ) : (
+            /* Level 2 — queries within the selected module */
+            <div className="space-y-2.5">
+              {catSubs.map((s, i) => (
+                <div key={i} className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2.5 flex items-center gap-3 bg-slate-50/60">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${s.passed ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                    <span className={`shrink-0 text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${TYPE_STYLES[s.mode] || 'bg-slate-50 border-slate-200 text-slate-500'}`}>{s.mode}</span>
+                    <span className="text-sm font-semibold text-slate-700 flex-1 truncate">Q{s.step}</span>
+                    <span className="text-xs text-slate-400 shrink-0">{s.timestamp || '—'}</span>
+                  </div>
+                  <pre className="bg-[#0e1117] p-3.5 overflow-x-auto custom-scrollbar text-[13px] font-mono text-slate-200 whitespace-pre-wrap"><code>{s.code || '-- (no code)'}</code></pre>
+                </div>
+              ))}
             </div>
-            <div>
-              <label className={labelCls}>Closes At</label>
-              <input type="datetime-local" value={toInput(draft.closeAt)} onChange={(e) => setDraft({ ...draft, closeAt: fromInput(e.target.value) })} className={inputCls} />
-            </div>
-          </div>
-          <div>
-            <label className={labelCls}>Time Limit <span className="normal-case tracking-normal text-slate-400 font-medium">(minutes)</span></label>
-            <input type="number" min="1" value={draft.timeLimitMin || ''} onChange={(e) => setDraft({ ...draft, timeLimitMin: e.target.value })} placeholder="60" className={inputCls} />
-          </div>
-          <p className="text-xs text-slate-400">Leave a field empty to disable that rule. The time limit counts from the moment each student starts the module exam.</p>
+          )}
         </Modal>
       )}
     </div>

@@ -168,7 +168,6 @@ export default function Header({ currentPage, onNavigate, isLoggedIn, userData, 
           <nav className="hidden md:flex items-center gap-1 lg:gap-2 p-1.5 lg:p-2 shrink-0 bg-[#f8f9fa] border border-[#0077b6]/15 rounded-full shadow-[inset_0_2px_10px_rgba(2,62,138,0.03)] transition-all duration-300">
             <button onClick={() => onNavigate('home')} className={getNavLinkStyle('home')}>Home</button>
             <button onClick={handleCourseClick} className={getNavLinkStyle('courses')}>Courses</button>
-            <button onClick={() => onNavigate('dashboard')} className={getNavLinkStyle('dashboard')}>Dashboard</button>
             {isStaff && (
               <button onClick={() => onNavigate('instructor')} className={getNavLinkStyle('instructor')}>Instructor</button>
             )}
@@ -292,7 +291,6 @@ export default function Header({ currentPage, onNavigate, isLoggedIn, userData, 
                 <div className="py-2">
                   {mobileNavBtn('home', 'Home')}
                   {mobileNavBtn('courses', 'Courses')}
-                  {mobileNavBtn('dashboard', 'Dashboard')}
                   {isStaff && mobileNavBtn('instructor', 'Instructor Console')}
                   {isAdmin && mobileNavBtn('admin', 'Admin Settings')}
                 </div>

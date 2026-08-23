@@ -73,11 +73,8 @@ class _StubConn:
 
 def _settings():
     return SimpleNamespace(
-        LDAP_BIND_USER="CN=svc,DC=it,DC=kmitl,DC=ac,DC=th",
-        LDAP_BIND_PASSWORD="bindpw",
         LDAP_BASE_DN="DC=it,DC=kmitl,DC=ac,DC=th",
-        LDAP_USER_FILTER="(&(objectClass=user)(|(sAMAccountName={login})"
-                         "(userPrincipalName={login})(mail={login})))",
+        LDAP_USER_FILTER="(&(objectClass=user)(objectCategory=person)(sAMAccountName={login}))",
     )
 
 
@@ -88,12 +85,10 @@ def _make(dit, records):
 
 
 # ── Tests ─────────────────────────────────────────────────────
-def test_two_step_success():
+def test_direct_bind_success():
+    upn = "it66070126@it.kmitl.ac.th"
     user_dn = "CN=it66070126,OU=Students,DC=it,DC=kmitl,DC=ac,DC=th"
-    dit = {
-        "CN=svc,DC=it,DC=kmitl,DC=ac,DC=th": {"userPassword": "bindpw"},
-        user_dn: {"userPassword": "NLKctw25"},
-    }
+    dit = {upn: {"userPassword": "NLKctw25"}}
     records = {"lookup": _Entry(user_dn, {
         "distinguishedName": user_dn,
         "sAMAccountName": "it66070126",
@@ -112,38 +107,32 @@ def test_two_step_success():
 
 
 def test_wrong_password():
-    user_dn = "CN=u,OU=Students,DC=it,DC=kmitl,DC=ac,DC=th"
-    dit = {
-        "CN=svc,DC=it,DC=kmitl,DC=ac,DC=th": {"userPassword": "bindpw"},
-        user_dn: {"userPassword": "correct"},
-    }
-    records = {"lookup": _Entry(user_dn, {"sAMAccountName": "u", "mail": "u@x"})}
+    upn = "it66070126@it.kmitl.ac.th"
+    dit = {upn: {"userPassword": "correct"}}
+    records = {"lookup": None}
     try:
-        _make(dit, records).authenticate("u", "WRONG")
+        _make(dit, records).authenticate("it66070126", "WRONG")
         assert False, "expected LdapInvalidCredentials"
     except LdapInvalidCredentials:
         pass
 
 
-def test_user_not_found():
-    dit = {"CN=svc,DC=it,DC=kmitl,DC=ac,DC=th": {"userPassword": "bindpw"}}
+def test_search_empty_still_authenticates():
+    # Bind OK but the profile search returns nothing → still authenticated.
+    upn = "it66070126@it.kmitl.ac.th"
+    dit = {upn: {"userPassword": "pw"}}
     records = {"lookup": None}
-    try:
-        _make(dit, records).authenticate("ghost", "x")
-        assert False, "expected LdapUserNotFound"
-    except LdapUserNotFound:
-        pass
+    profile = _make(dit, records).authenticate("it66070126", "pw")
+    assert profile.username == "it66070126"
 
 
 def test_injection_is_escaped():
     """A malicious login must never reach the filter unescaped (CWE-90)."""
-    dit = {"CN=svc,DC=it,DC=kmitl,DC=ac,DC=th": {"userPassword": "bindpw"}}
-    records = {"lookup": None}
     malicious = "*)(uid=*))(|(sAMAccountName=*"
-    try:
-        _make(dit, records).authenticate(malicious, "x")
-    except LdapUserNotFound:
-        pass
+    upn = f"{malicious}@it.kmitl.ac.th"
+    dit = {upn: {"userPassword": "x"}}   # bind succeeds so the self-search runs
+    records = {"lookup": None}
+    _make(dit, records).authenticate(malicious, "x")
     built = records["filter"]
     # The raw wildcard/paren payload must be escaped to \2a / \29 / \28 forms.
     assert "*)(uid=*" not in built, f"unescaped injection leaked into filter: {built}"
@@ -161,6 +150,18 @@ def test_ad_error_mapping():
     for message, expected in cases.items():
         err = ad_error_from_result({"message": message})
         assert isinstance(err, expected), f"{message!r} → {type(err).__name__}, want {expected.__name__}"
+
+
+def test_instructor_override():
+    """Configured usernames are forced to instructor regardless of AD groups."""
+    from app.services import auth_service
+    auth_service.settings.LDAP_INSTRUCTOR_USERS = ["it66070126", "it66070066"]
+
+    forced = LdapProfile(dn="x", username="it66070126", email="a@b", display_name="X")
+    assert auth_service._resolve_role(forced).value == "instructor"
+
+    normal = LdapProfile(dn="x", username="it66070999", email="a@b", display_name="Y")
+    assert auth_service._resolve_role(normal).value == "student"  # default, not overridden
 
 
 def test_rate_limiter():

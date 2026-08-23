@@ -8,8 +8,11 @@ GET  /api/auth/me        — Get current user info
 POST /api/auth/activity  — Log user activity
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.config import get_settings
@@ -23,6 +26,7 @@ from app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 settings = get_settings()
+logger = logging.getLogger("api.auth")
 
 
 def _client_ip(request: Request) -> str:
@@ -31,6 +35,21 @@ def _client_ip(request: Request) -> str:
     if fwd:
         return fwd.split(",")[0].strip()
     return request.client.host if request.client else "-"
+
+
+def _throttle(request: Request, username: str) -> None:
+    """Per-IP + per-username sliding-window throttle (brute-force guard)."""
+    ip = _client_ip(request)
+    for key in (f"ip:{ip}", f"user:{(username or '').strip().lower()}"):
+        allowed, retry_after = login_rate_limiter.hit(
+            key, settings.LDAP_RATE_LIMIT, settings.LDAP_RATE_WINDOW
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=f"พยายามบ่อยเกินไป กรุณารอ {retry_after} วินาทีแล้วลองใหม่",
+                headers={"Retry-After": str(retry_after)},
+            )
 
 
 # ── POST /api/auth/google (เดิม — ไม่แตะ) ────────────────────
@@ -49,18 +68,22 @@ async def login_with_google(
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
+    except Exception:
+        logger.exception("google_login failed")
+        raise HTTPException(status_code=500, detail="ยืนยันตัวตนไม่สำเร็จ กรุณาลองใหม่")
 
 
 # ── POST /api/auth/register ───────────────────────────────────
 @router.post("/register", response_model=AuthResponse)
-async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(body: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """สมัครสมาชิกด้วย username / password / email / name / modules"""
+    _throttle(request, body.username)
     try:
         user = await register_user(db, body)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail="Username หรือ Email นี้ถูกใช้แล้ว")
 
     token = create_token(user)
     return AuthResponse(
@@ -79,8 +102,9 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 # ── POST /api/auth/login ──────────────────────────────────────
 @router.post("/login", response_model=AuthResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """เข้าสู่ระบบด้วย username / password"""
+    _throttle(request, body.username)
     try:
         user = await login_user(db, body)
     except ValueError as e:

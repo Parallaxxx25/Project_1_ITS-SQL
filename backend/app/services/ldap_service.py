@@ -1,19 +1,18 @@
 """
 app/services/ldap_service.py — LDAP / Active Directory authentication.
 
-Security model (CWE-90 + AppSec):
-  • All user input is escaped with ldap3.utils.conv.escape_filter_chars before
-    it is placed into a search filter (LDAP injection prevention).
-  • Transport is LDAPS (TLS) by default; certificate validation is configurable.
-  • Two-step "service bind" strategy:
-        Step 1 — bind as the service account, search for the user's DN.
-        Step 2 — re-bind as the user's DN with the password they typed.
-  • Passwords are NEVER logged and never leave this module.
-  • AD "data <code>" sub-errors are mapped to typed exceptions so the API layer
-    can return safe, user-facing messages without leaking server internals.
+Strategy (matches the known-working test_login.py):
+  • Connect over LDAPS (port 636) with TLS 1.2, cert validation configurable.
+  • Bind DIRECTLY as the user with their UPN  (username@it.kmitl.ac.th),
+    derived from LDAP_BASE_DN. A successful bind == authenticated. No service
+    account / 2-step lookup needed.
+  • After binding, the user's own connection searches for their profile
+    (sAMAccountName), escaping the input with escape_filter_chars (CWE-90).
+  • Passwords are never logged. AD "data <code>" sub-errors map to typed
+    exceptions so the API returns safe messages.
 
 The authenticator accepts an optional ``connection_factory`` so unit tests can
-inject an offline ``MOCK_SYNC`` connection instead of hitting a real server.
+inject an offline stub connection instead of hitting a real server.
 """
 from __future__ import annotations
 
@@ -21,7 +20,7 @@ import re
 import ssl
 from dataclasses import dataclass, field
 
-from ldap3 import Server, Connection, Tls, SUBTREE, SYNC, NONE
+from ldap3 import Server, Connection, Tls, SUBTREE, SYNC, ALL
 from ldap3.core.exceptions import (
     LDAPException,
     LDAPBindError,
@@ -52,7 +51,7 @@ class LdapInvalidCredentials(LdapError):
 
 
 class LdapUserNotFound(LdapError):
-    # Deliberately identical message to InvalidCredentials — prevents user enumeration.
+    # Same message as InvalidCredentials — prevents user enumeration.
     public_message = "Username หรือ Password ไม่ถูกต้อง"
 
 
@@ -92,13 +91,15 @@ _AD_ERROR_MAP: dict[str, type[LdapError]] = {
 _AD_DATA_RE = re.compile(r"data\s+([0-9a-fA-F]+)", re.IGNORECASE)
 
 
-def ad_error_from_result(result: dict | None) -> LdapError:
-    """Translate an ldap3 bind result dict into a typed error."""
-    message = (result or {}).get("message", "") or ""
+def ad_error_from_result(result_or_message) -> LdapError:
+    """Translate an ldap3 result dict / message string into a typed error."""
+    if isinstance(result_or_message, dict):
+        message = result_or_message.get("message", "") or ""
+    else:
+        message = str(result_or_message or "")
     match = _AD_DATA_RE.search(message)
     if match:
-        code = match.group(1).lower()
-        cls = _AD_ERROR_MAP.get(code)
+        cls = _AD_ERROR_MAP.get(match.group(1).lower())
         if cls:
             return cls()
     # No recognizable AD code → treat as invalid credentials (safe default).
@@ -114,6 +115,7 @@ class LdapProfile:
     display_name: str
     department: str = ""
     groups: list[str] = field(default_factory=list)
+    role: str | None = None       # explicit role hint (dev users); real AD uses groups
 
 
 # ── Authenticator ─────────────────────────────────────────────
@@ -121,16 +123,21 @@ class LdapAuthenticator:
     def __init__(self, settings=None, connection_factory=None):
         self.s = settings or get_settings()
         # connection_factory(user, password, *, raise_on_bind) -> Connection
-        # Injectable so tests can supply an offline MOCK_SYNC connection.
+        # Injectable so tests can supply an offline stub connection.
         self._factory = connection_factory or self._real_connection
+        # StartTLS only makes sense on a plaintext (non-LDAPS) connection.
+        self._start_tls = getattr(self.s, "LDAP_START_TLS", False) and not getattr(self.s, "LDAP_USE_SSL", False)
 
     # -- server / connection --------------------------------------------------
     def _tls(self) -> Tls | None:
-        if not self.s.LDAP_USE_SSL:
+        if not getattr(self.s, "LDAP_USE_SSL", False) and not self._start_tls:
             return None
-        validate = getattr(ssl, self.s.LDAP_TLS_VALIDATE, ssl.CERT_REQUIRED)
-        kwargs = {"validate": validate, "version": ssl.PROTOCOL_TLS_CLIENT}
-        if self.s.LDAP_CA_CERTS_FILE:
+        validate = getattr(ssl, self.s.LDAP_TLS_VALIDATE, ssl.CERT_NONE)
+        kwargs = {"validate": validate}
+        # Match the proven-working client: force TLS 1.2.
+        if hasattr(ssl, "PROTOCOL_TLSv1_2"):
+            kwargs["version"] = ssl.PROTOCOL_TLSv1_2
+        if getattr(self.s, "LDAP_CA_CERTS_FILE", ""):
             kwargs["ca_certs_file"] = self.s.LDAP_CA_CERTS_FILE
         return Tls(**kwargs)
 
@@ -138,13 +145,13 @@ class LdapAuthenticator:
         return Server(
             host=self.s.LDAP_HOST,
             port=self.s.LDAP_PORT,
-            use_ssl=self.s.LDAP_USE_SSL,
+            use_ssl=getattr(self.s, "LDAP_USE_SSL", False),
             tls=self._tls(),
             connect_timeout=self.s.LDAP_TIMEOUT,
-            get_info=NONE,
+            get_info=ALL,
         )
 
-    def _real_connection(self, user: str, password: str, *, raise_on_bind: bool) -> Connection:
+    def _real_connection(self, user, password, *, raise_on_bind: bool) -> Connection:
         return Connection(
             self._server(),
             user=user,
@@ -155,60 +162,92 @@ class LdapAuthenticator:
             receive_timeout=self.s.LDAP_TIMEOUT,
         )
 
+    def _maybe_start_tls(self, conn) -> None:
+        if self._start_tls:
+            conn.open()
+            conn.start_tls()
+
+    # -- identity helpers -----------------------------------------------------
+    def _domain(self) -> str:
+        """DC=it,DC=kmitl,DC=ac,DC=th → it.kmitl.ac.th"""
+        parts = [
+            p.split("=", 1)[1]
+            for p in (self.s.LDAP_BASE_DN or "").split(",")
+            if p.strip().upper().startswith("DC=")
+        ]
+        return ".".join(parts)
+
+    def _user_upn(self, login: str) -> str:
+        if "@" in login or "\\" in login:
+            return login              # already UPN or DOMAIN\user
+        domain = self._domain()
+        return f"{login}@{domain}" if domain else login
+
     # -- public API -----------------------------------------------------------
     def ping(self) -> bool:
-        """Open a socket + bind the service account. Raises on failure."""
-        conn = self._bind_service()
-        conn.unbind()
-        return True
-
-    def authenticate(self, login: str, password: str) -> LdapProfile:
-        """Full 2-step authentication. Raises an LdapError subclass on failure."""
-        login = (login or "").strip()
-        if not login or not password:
-            raise LdapInvalidCredentials()
-        if not self.s.LDAP_BIND_PASSWORD:
-            raise LdapConfigError()
-
-        # Step 1 — service bind + lookup.
-        service = self._bind_service()
+        """Open a socket + TLS to the server (no bind). Raises on failure."""
         try:
-            profile = self._lookup_user(service, login)
-        finally:
-            service.unbind()
-
-        # Step 2 — bind as the user with the supplied password.
-        self._bind_as_user(profile.dn, password)
-        return profile
-
-    # -- internals ------------------------------------------------------------
-    def _bind_service(self) -> Connection:
-        try:
-            conn = self._factory(self.s.LDAP_BIND_USER, self.s.LDAP_BIND_PASSWORD, raise_on_bind=False)
-            if not conn.bind():
-                # Bad service credentials or reachable-but-refused → config problem.
-                raise LdapConfigError()
-            return conn
+            conn = self._factory(None, None, raise_on_bind=False)
+            conn.open()
+            conn.unbind()
+            return True
         except (LDAPSocketOpenError, LDAPSocketReceiveError) as e:
             raise LdapUnavailable() from e
         except LDAPException as e:
-            raise LdapConfigError() from e
+            raise LdapUnavailable() from e
 
-    def _lookup_user(self, conn: Connection, login: str) -> LdapProfile:
+    def authenticate(self, login: str, password: str) -> LdapProfile:
+        """Direct UPN bind + self-search. Raises an LdapError subclass on failure."""
+        login = (login or "").strip()
+        if not login or not password:
+            raise LdapInvalidCredentials()
+
+        upn = self._user_upn(login)
+
+        # Bind as the user — this verifies the password.
+        try:
+            conn = self._factory(upn, password, raise_on_bind=False)
+            self._maybe_start_tls(conn)
+            bound = conn.bind()
+        except LDAPBindError as e:
+            raise ad_error_from_result(getattr(e, "result", None) or {}) from e
+        except (LDAPSocketOpenError, LDAPSocketReceiveError) as e:
+            raise LdapUnavailable() from e
+        except LDAPException as e:
+            raise LdapInvalidCredentials() from e
+
+        if not bound:
+            # ldap3 stores the AD sub-error in conn.result['message'].
+            raise ad_error_from_result(conn.result)
+
+        # Authenticated — enrich with the directory profile (best-effort).
+        try:
+            return self._search_self(conn, login, upn)
+        finally:
+            conn.unbind()
+
+    # -- internals ------------------------------------------------------------
+    def _search_self(self, conn: Connection, login: str, upn: str) -> LdapProfile:
         # CWE-90: escape the untrusted input before building the filter.
         safe = escape_filter_chars(login)
         search_filter = self.s.LDAP_USER_FILTER.format(login=safe)
-        ok = conn.search(
-            search_base=self.s.LDAP_BASE_DN,
-            search_filter=search_filter,
-            search_scope=SUBTREE,
-            attributes=[
-                "distinguishedName", "sAMAccountName", "displayName",
-                "mail", "userPrincipalName", "department", "memberOf",
-            ],
-        )
-        if not ok or not conn.entries:
-            raise LdapUserNotFound()
+        try:
+            conn.search(
+                search_base=self.s.LDAP_BASE_DN,
+                search_filter=search_filter,
+                search_scope=SUBTREE,
+                attributes=[
+                    "distinguishedName", "sAMAccountName", "displayName",
+                    "cn", "mail", "userPrincipalName", "department", "memberOf",
+                ],
+            )
+        except LDAPException:
+            conn.entries = []
+
+        if not conn.entries:
+            # Bind already succeeded → the user IS authenticated even if the
+            # profile search returns nothing. Return a minimal profile.
+            return LdapProfile(dn=upn, username=login, email="", display_name=login)
 
         entry = conn.entries[0]
 
@@ -226,33 +265,14 @@ class LdapAuthenticator:
                 return []
             return [str(x) for x in (v or [])]
 
-        dn = val("distinguishedName") or entry.entry_dn
-        sam = val("sAMAccountName") or login
-        email = val("mail") or val("userPrincipalName")
         return LdapProfile(
-            dn=dn,
-            username=sam,
-            email=email,
-            display_name=val("displayName") or sam,
+            dn=val("distinguishedName") or entry.entry_dn,
+            username=val("sAMAccountName") or login,
+            email=val("mail") or val("userPrincipalName"),
+            display_name=val("displayName") or val("cn") or login,
             department=val("department"),
             groups=vals("memberOf"),
         )
-
-    def _bind_as_user(self, user_dn: str, password: str) -> None:
-        try:
-            conn = self._factory(user_dn, password, raise_on_bind=False)
-            bound = conn.bind()
-        except LDAPBindError as e:
-            raise ad_error_from_result(getattr(e, "result", None) or {}) from e
-        except (LDAPSocketOpenError, LDAPSocketReceiveError) as e:
-            raise LdapUnavailable() from e
-        except LDAPException as e:
-            raise LdapInvalidCredentials() from e
-
-        if not bound:
-            # ldap3 stores the AD sub-error in conn.result['message'].
-            raise ad_error_from_result(conn.result)
-        conn.unbind()
 
 
 # Module-level convenience singleton.

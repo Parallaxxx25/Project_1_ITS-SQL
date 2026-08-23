@@ -31,7 +31,7 @@ export function clearAuth() {
 
 // ─── Fetch Wrapper ────────────────────────────────────────
 
-async function apiFetch(path, options = {}) {
+async function apiFetch(path, options = {}, timeoutMs = 15000) {
   const url = `${API_BASE}${path}`;
   const headers = {
     'Content-Type': 'application/json',
@@ -42,25 +42,37 @@ async function apiFetch(path, options = {}) {
     headers['Authorization'] = `Bearer ${_token}`;
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  // Timeout so a hung request can't block the UI forever.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(url, { ...options, headers, signal: controller.signal });
+  } catch (err) {
+    // Distinguish timeout vs offline/CORS — both are network-level failures.
+    if (err.name === 'AbortError') throw new Error('การเชื่อมต่อหมดเวลา กรุณาลองใหม่');
+    throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาตรวจสอบเครือข่าย');
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (response.status === 401) {
     clearAuth();
     // Don't force reload — let the app handle re-auth gracefully
-    throw new Error('Session expired — please log in again');
+    throw new Error('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
   }
 
   if (response.status === 204) {
     return null; // No content
   }
 
-  const data = await response.json();
+  // Body may not be JSON (500 HTML page, proxy error) — guard the parse.
+  let data = {};
+  try { data = await response.json(); } catch { /* non-JSON body */ }
 
   if (!response.ok) {
-    throw new Error(data.detail || `API Error: ${response.status}`);
+    throw new Error(data.detail || `เกิดข้อผิดพลาด (${response.status})`);
   }
 
   return data;

@@ -29,20 +29,29 @@ function canonicalNumber(n) {
 
 const NUMERIC_RE = /^-?\d+(\.\d+)?$/;
 
-// Normalize a single cell value to a canonical comparable string.
+// Normalize a single cell value to a canonical, TYPE-TAGGED comparable string.
+// The type tag ('n:' number, 's:' string, 'b:' bool, 'd:' date) prevents
+// cross-type false positives — e.g. the TEXT '007' must NOT equal the number 7,
+// and '1.0' (text) must NOT equal 1 (number). Numeric tolerance is applied only
+// within genuine numeric types.
 function normalizeValue(v) {
     if (v === null || v === undefined) return NULL_SENTINEL;
 
     const t = typeof v;
-    if (t === 'bigint') return v.toString();
-    if (t === 'number') return canonicalNumber(v);
-    if (t === 'boolean') return v ? 'true' : 'false';
-    if (v instanceof Date) return Number.isNaN(v.getTime()) ? NULL_SENTINEL : v.toISOString();
+    if (t === 'bigint') return 'n:' + v.toString();
+    if (t === 'number') return 'n:' + canonicalNumber(v);
+    if (t === 'boolean') return 'b:' + (v ? 'true' : 'false');
+    if (v instanceof Date) return Number.isNaN(v.getTime()) ? NULL_SENTINEL : 'd:' + v.toISOString();
 
-    // Strings and Arrow/decimal objects (fall back to their string form).
-    const s = (t === 'string' ? v : String(v)).trim();
-    if (s !== '' && NUMERIC_RE.test(s)) return canonicalNumber(Number(s));
-    return s;
+    // Arrow decimal / numeric objects surface as objects whose string form is a
+    // plain number → treat as numbers so DECIMAL(10,2) 12.50 matches number 12.5.
+    if (t === 'object') {
+        const s = String(v).trim();
+        return s !== '' && NUMERIC_RE.test(s) ? 'n:' + canonicalNumber(Number(s)) : 's:' + s;
+    }
+
+    // Real strings compared literally — NEVER coerced to numbers.
+    return 's:' + v.trim();
 }
 
 // Build a canonical key string for one row, reading values positionally.
@@ -125,8 +134,12 @@ export class Verifier {
             // Order matters only when the expected answer is explicitly ordered.
             const orderSensitive = /\bORDER\s+BY\b/i.test(goldenQuery);
 
-            const goldenResult = await dbManager.executeQuery(normalizedGolden);
-            const studentResult = await dbManager.executeQuery(normalizedStudent);
+            // Run inside a rolled-back transaction so a student's DML/DDL
+            // (DELETE/DROP/UPDATE…) can never corrupt the shared dataset for the
+            // next question, and with a timeout so runaway/cartesian queries
+            // surface an error instead of hanging the tab.
+            const goldenResult = await dbManager.executeReadOnly(normalizedGolden);
+            const studentResult = await dbManager.executeReadOnly(normalizedStudent);
 
             const comparison = this.compareResults(studentResult, goldenResult, orderSensitive);
 

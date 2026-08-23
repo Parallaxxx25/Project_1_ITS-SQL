@@ -2,12 +2,22 @@
 ITS-SQL Platform — FastAPI Application Entry Point
 """
 
+import logging
+import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.database import init_db
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("app")
 
 # Import routers
 from app.api.auth import router as auth_router
@@ -58,7 +68,28 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
+
+
+# ── Request ID + global error trap ───────────────────────────────────
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    """Tag every request with an id and convert any unhandled exception into a
+    safe JSON 500 (no stack trace / internals leaked to the client)."""
+    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("Unhandled error request_id=%s path=%s", request_id, request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "เกิดข้อผิดพลาดภายในระบบ กรุณาลองใหม่", "request_id": request_id},
+            headers={"X-Request-ID": request_id},
+        )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 
 # ── Routers ──────────────────────────────────────────────────────────
 app.include_router(auth_router, prefix="/api")

@@ -171,6 +171,37 @@ class DatabaseManager {
         }
     }
 
+    // Race a promise against a timeout so a runaway query can't hang the tab.
+    _withTimeout(promise, ms) {
+        let timer;
+        const timeout = new Promise((_, reject) => {
+            timer = setTimeout(
+                () => reject(new Error(`Query timed out after ${Math.round(ms / 1000)}s — check for an infinite loop or a very large (cartesian) join.`)),
+                ms
+            );
+        });
+        return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+    }
+
+    // Execute inside a transaction that is ALWAYS rolled back, so grading a
+    // student's query can never mutate the shared dataset (DELETE/DROP/UPDATE/
+    // INSERT). Read queries still return their rows normally.
+    async executeReadOnly(sql, timeoutMs = 8000) {
+        if (!this.conn) {
+            throw new Error('Database not initialized');
+        }
+        const run = (async () => {
+            await this.conn.query('BEGIN TRANSACTION');
+            try {
+                const result = await this.conn.query(sql);
+                return this.formatResult(result);
+            } finally {
+                try { await this.conn.query('ROLLBACK'); } catch { /* ignore */ }
+            }
+        })();
+        return this._withTimeout(run, timeoutMs);
+    }
+
     formatResult(result) {
         try {
             // Convert DuckDB result to a simple array of objects
@@ -178,7 +209,10 @@ class DatabaseManager {
             const numRows = result.numRows;
             
             if (numRows === 0) {
-                return { columns: [], rows: [] };
+                // Keep real column names even with no rows, so an empty result
+                // with the WRONG columns no longer looks identical to the answer.
+                const cols = result.schema?.fields?.map((f) => f.name) || [];
+                return { columns: cols, rows: [] };
             }
 
             // Get column names from schema
@@ -245,9 +279,9 @@ class DatabaseManager {
                             row[col] = null;
                         }
                     });
-                    if (Object.values(row).some(v => v !== null)) {
-                        rows.push(row);
-                    }
+                    // Keep every row — including all-NULL rows (e.g. LEFT JOIN
+                    // misses), otherwise row counts silently drift and grading fails.
+                    rows.push(row);
                 }
                 
                 if (rows.length > 0) {

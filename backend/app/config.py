@@ -24,8 +24,14 @@ class Settings(BaseSettings):
     # Certificate validation: CERT_REQUIRED (secure) | CERT_OPTIONAL | CERT_NONE (dev only).
     # If the AD server uses an internal/self-signed cert not in the OS trust store,
     # CERT_REQUIRED will fail — install the CA and keep CERT_REQUIRED for production.
+    # AD commonly uses an internal/self-signed LDAPS cert → CERT_NONE by default
+    # (matches the known-working client). Set CERT_REQUIRED + LDAP_CA_CERTS_FILE
+    # once the CA is trusted.
     LDAP_TLS_VALIDATE: str = "CERT_REQUIRED"
     LDAP_CA_CERTS_FILE: str = ""        # optional path to CA bundle for the AD cert
+    # StartTLS: connect plaintext on 389 then upgrade to TLS before binding.
+    # Use when the server offers 389 (not 636) but you still want encryption.
+    LDAP_START_TLS: bool = False
 
     # Service (bind) account — used only to look up the user's DN (step 1).
     # AD simple bind accepts UPN (user@domain) or DOWN-LEVEL (DOMAIN\\user) or full DN.
@@ -34,10 +40,7 @@ class Settings(BaseSettings):
 
     LDAP_BASE_DN: str = "DC=it,DC=kmitl,DC=ac,DC=th"
     # {login} is replaced with the ESCAPED user input (CWE-90 safe).
-    LDAP_USER_FILTER: str = (
-        "(&(objectClass=user)"
-        "(|(sAMAccountName={login})(userPrincipalName={login})(mail={login})))"
-    )
+    LDAP_USER_FILTER: str = "(&(objectClass=user)(objectCategory=person)(sAMAccountName={login}))"
     LDAP_TIMEOUT: int = 8              # seconds for connect + receive
 
     # Role assignment for JIT-provisioned LDAP users.
@@ -45,6 +48,9 @@ class Settings(BaseSettings):
     # Map an AD group DN substring → platform role, e.g.
     # {"CN=Instructors,OU=Groups": "instructor"}. Checked against memberOf.
     LDAP_GROUP_ROLE_MAP: dict = {}
+    # Usernames (sAMAccountName / login) always granted the instructor role,
+    # regardless of AD groups. Password is STILL verified by LDAP/AD.
+    LDAP_INSTRUCTOR_USERS: list[str] = []
 
     # Brute-force / lockout protection (per IP and per username).
     LDAP_RATE_LIMIT: int = 5          # max attempts...
@@ -56,6 +62,10 @@ class Settings(BaseSettings):
     # MUST be False in production — enable only via the gitignored .env.
     LDAP_DEV_MODE: bool = False
     LDAP_DEV_USERS: dict = {}         # {username: {password,name,email,role,department}}
+    # When True, if the real AD is UNREACHABLE (e.g. off-campus, no tunnel),
+    # fall back to the local dev users so login still works. Real AD is always
+    # tried first — so on campus/tunnel the real AD password is used.
+    LDAP_DEV_FALLBACK: bool = False
 
     # LDAP Branch configurations (Thai university common branches)
     # Format: branch_code -> display_name

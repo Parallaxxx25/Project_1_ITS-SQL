@@ -3,7 +3,7 @@ app/services/auth_service.py — Auth business logic
 """
 import json
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
@@ -30,17 +30,21 @@ def verify_password(password: str, hashed: str) -> bool:
 
 # ── JWT helpers ───────────────────────────────────────────────
 def create_token(user: User) -> str:
+    now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user.id),
         "username": user.username,
         "role": user.role.value,
-        "iat": datetime.now(timezone.utc).timestamp(),
+        "iat": now,
+        # Expiry — tokens MUST NOT live forever (revocation / stolen-token window).
+        "exp": now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def decode_token(token: str) -> dict:
-    return jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+    # PyJWT verifies `exp` by default and raises ExpiredSignatureError when past.
+    return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
 
 
 # ── Register ──────────────────────────────────────────────────
@@ -172,6 +176,24 @@ def _role_from_groups(groups: list[str]) -> Role:
         return Role.STUDENT
 
 
+def _resolve_role(profile) -> Role:
+    """Explicit hint → AD groups → default; then force instructor for the
+    configured override usernames (password already verified by LDAP)."""
+    role = None
+    if getattr(profile, "role", None):
+        try:
+            role = Role(profile.role)
+        except ValueError:
+            role = None
+    if role is None:
+        role = _role_from_groups(profile.groups)
+
+    override = {u.strip().lower() for u in (settings.LDAP_INSTRUCTOR_USERS or [])}
+    if profile.username and profile.username.lower() in override:
+        role = Role.INSTRUCTOR
+    return role
+
+
 async def ldap_login_user(db: AsyncSession, login: str, password: str) -> User:
     """
     Authenticate against AD/LDAP, then find-or-provision the local User record.
@@ -186,16 +208,27 @@ async def ldap_login_user(db: AsyncSession, login: str, password: str) -> User:
         profile = dev_authenticate(settings, login, password)
     else:
         authenticator = ldap_service.get_authenticator()
-        profile = await run_in_threadpool(authenticator.authenticate, login, password)
+        try:
+            profile = await run_in_threadpool(authenticator.authenticate, login, password)
+        except ldap_service.LdapUnavailable:
+            # AD unreachable (off-campus / no tunnel). Optionally fall back to
+            # local dev users so login still works; real AD stays primary.
+            if getattr(settings, "LDAP_DEV_FALLBACK", False):
+                from app.services.ldap_dev import dev_authenticate
+                profile = dev_authenticate(settings, login, password)
+            else:
+                raise
 
     # Find existing account by AD username (sAMAccountName), then by email.
     user = await db.scalar(select(User).where(User.username == profile.username))
     if not user and profile.email:
         user = await db.scalar(select(User).where(User.email == profile.email))
 
+    # Resolve role: hint/groups/default, with instructor-override applied.
+    role = _resolve_role(profile)
+
     if not user:
         # Just-in-time provisioning — accounts are governed by AD.
-        role = _role_from_groups(profile.groups)
         email = profile.email or f"{profile.username}@{settings.ALLOWED_EMAIL_DOMAIN}"
         user = User(
             username=profile.username,
@@ -210,7 +243,8 @@ async def ldap_login_user(db: AsyncSession, login: str, password: str) -> User:
     else:
         if not user.is_active:
             raise ValueError("บัญชีนี้ถูกระงับการใช้งาน")
-        # Refresh identity fields from the authoritative directory.
+        # Keep role + identity in sync with the authoritative directory on each login.
+        user.role = role
         if profile.display_name:
             user.name = profile.display_name
         if profile.email:

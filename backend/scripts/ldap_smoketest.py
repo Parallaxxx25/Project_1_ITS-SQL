@@ -25,7 +25,7 @@ def main() -> int:
 
     print(f"target : {s.LDAP_HOST}:{s.LDAP_PORT}  ssl={s.LDAP_USE_SSL}  tls={s.LDAP_TLS_VALIDATE}")
     print(f"base   : {s.LDAP_BASE_DN}")
-    print(f"bind as: {s.LDAP_BIND_USER}")
+    print(f"mode   : direct UPN bind (login@domain)")
     print(f"testing: {user}\n")
 
     # [1] TCP reachability
@@ -43,14 +43,14 @@ def main() -> int:
 
     auth = LdapAuthenticator()
 
-    # [2] Service bind
+    # [2] Server reachable + TLS handshake
     try:
         auth.ping()
-        print("[2] service bind ...... OK")
+        print("[2] server + TLS ...... OK")
     except LdapError as e:
-        print(f"[2] service bind ...... FAIL: {type(e).__name__}")
+        print(f"[2] server + TLS ...... FAIL: {type(e).__name__}")
         print(f"    → {e.public_message}")
-        print("    → Check LDAP_BIND_USER form (UPN vs DOMAIN\\user vs DN) and LDAP_BIND_PASSWORD.")
+        print("    → 636 blocked, or TLS handshake failed. Check tunnel/campus + LDAP_TLS_VALIDATE.")
         return 3
 
     # [3] Full 2-step user authentication

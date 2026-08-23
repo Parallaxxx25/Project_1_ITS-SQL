@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Header from './components/Header';
 import Home from './components/Home';
 import CourseText from './components/CourseText';
-import Dashboard from './components/Dashboard'; 
 import Login from './components/Login'; 
 import StepIndicator from './components/StepIndicator';
 import LeftPanel from './components/LeftPanel';
@@ -39,7 +38,7 @@ export default function App() {
   const isLoggedIn = !!user;
 
   // เอา 'courses' ออกจาก VALID_PAGES ตามโค้ดต้นฉบับของคุณ
-  const VALID_PAGES = ['home', 'coursetext', 'dashboard', 'workspace', 'instructor', 'coursemanage', 'problems', 'admin'];
+  const VALID_PAGES = ['home', 'coursetext', 'workspace', 'instructor', 'coursemanage', 'problems', 'admin'];
 
   const getPageFromPath = () => {
     const path = window.location.pathname.replace(/^\//, '') || 'home';
@@ -91,6 +90,7 @@ export default function App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [dbError, setDbError] = useState(null);
   const [workspaceMode, setWorkspaceMode] = useState(() => localStorage.getItem('workspaceMode') || 'COURSE');
 
   const handleLogout = useCallback(() => {
@@ -162,7 +162,10 @@ export default function App() {
           await dbManager.initialize(); 
           window.duckdb_initialized = true;
         }
-      } catch (err) { console.error(err); } 
+      } catch (err) {
+        console.error(err);
+        setDbError(err?.message || 'ไม่สามารถเริ่มต้นฐานข้อมูล (DuckDB) ได้ กรุณารีเฟรชหน้า');
+      }
       finally { setIsLoading(false); }
     };
     initializeApp();
@@ -272,13 +275,26 @@ export default function App() {
 
   const handleSubmit = async (code, language) => {
     if(!problemData || problemData.title === 'NO CONTENT FOUND') return;
-    resetTimer(); 
+    resetTimer();
+    if (dbError) {
+      setOverlay({ visible: true, status: 'error', message: dbError });
+      setTimeout(() => setOverlay({ visible: false }), 2500);
+      return;
+    }
     setOverlay({ visible: true, status: 'loading', message: 'Validating Query...' });
     try {
       const cleanCode = stripSqlComments(code);
       const verifyStart = performance.now();
       const result = await new Verifier().verify(code, problemData.goldenQuery);
       const durationMs = Math.round(performance.now() - verifyStart);
+
+      // Surface the real engine error (syntax / unknown table / timeout) instead
+      // of silently marking "failed" with a generic message.
+      if (result.error) {
+        setOverlay({ visible: true, status: 'error', message: result.error });
+        setTimeout(() => setOverlay({ visible: false }), 2800);
+        return;
+      }
       const hasSemicolon = cleanCode.trim().endsWith(';');
       const isPassed = result.success && hasSemicolon;
       
@@ -350,9 +366,9 @@ export default function App() {
           }
         }
       }, 1500);
-    } catch (err) { 
-      setOverlay({ visible: true, status: 'error', message: 'Parser Error' });
-      setTimeout(() => setOverlay({ visible: false }), 2000);
+    } catch (err) {
+      setOverlay({ visible: true, status: 'error', message: err?.message || 'เกิดข้อผิดพลาดในการตรวจคำตอบ' });
+      setTimeout(() => setOverlay({ visible: false }), 2500);
     }
   };
 
@@ -417,7 +433,6 @@ export default function App() {
         {isLoggedIn ? (
           <>
             {currentPage === 'coursetext' && <CourseText onNavigate={navigateTo} user={user} />}
-            {currentPage === 'dashboard' && <Dashboard onNavigate={navigateTo} user={user} />}
             {/* instructor / coursemanage / problems all resolve to the unified console */}
             {(currentPage === 'instructor' || currentPage === 'coursemanage' || currentPage === 'problems') && canTeach && <InstructorDashboard onNavigate={navigateTo} user={user} />}
             {currentPage === 'admin' && <AdminPanel onNavigate={navigateTo} />}
