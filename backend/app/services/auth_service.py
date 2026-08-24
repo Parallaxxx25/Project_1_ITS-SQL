@@ -7,14 +7,12 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.user import User, Role
 from app.schemas.auth import RegisterRequest, LoginRequest
-from app.services import ldap_service
 
 settings = get_settings()
 
@@ -159,98 +157,3 @@ async def google_login(access_token: str, db: AsyncSession, requested_role: str 
             "photo_url": user.photo_url,
         },
     }
-
-
-# ── LDAP / Active Directory Login ─────────────────────────────
-def _role_from_groups(groups: list[str]) -> Role:
-    """Map AD memberOf groups → platform role via LDAP_GROUP_ROLE_MAP."""
-    for needle, role_name in (settings.LDAP_GROUP_ROLE_MAP or {}).items():
-        if any(needle.lower() in g.lower() for g in groups):
-            try:
-                return Role(role_name)
-            except ValueError:
-                continue
-    try:
-        return Role(settings.LDAP_DEFAULT_ROLE)
-    except ValueError:
-        return Role.STUDENT
-
-
-def _resolve_role(profile) -> Role:
-    """Explicit hint → AD groups → default; then force instructor for the
-    configured override usernames (password already verified by LDAP)."""
-    role = None
-    if getattr(profile, "role", None):
-        try:
-            role = Role(profile.role)
-        except ValueError:
-            role = None
-    if role is None:
-        role = _role_from_groups(profile.groups)
-
-    override = {u.strip().lower() for u in (settings.LDAP_INSTRUCTOR_USERS or [])}
-    if profile.username and profile.username.lower() in override:
-        role = Role.INSTRUCTOR
-    return role
-
-
-async def ldap_login_user(db: AsyncSession, login: str, password: str) -> User:
-    """
-    Authenticate against AD/LDAP, then find-or-provision the local User record.
-
-    The blocking ldap3 network call is run in a threadpool so it does not stall
-    the async event loop. Raises ldap_service.LdapError subclasses on auth
-    failure, or ValueError if the local account is deactivated.
-    """
-    if settings.LDAP_DEV_MODE:
-        # Local test users — no network. See app/services/ldap_dev.py.
-        from app.services.ldap_dev import dev_authenticate
-        profile = dev_authenticate(settings, login, password)
-    else:
-        authenticator = ldap_service.get_authenticator()
-        try:
-            profile = await run_in_threadpool(authenticator.authenticate, login, password)
-        except ldap_service.LdapUnavailable:
-            # AD unreachable (off-campus / no tunnel). Optionally fall back to
-            # local dev users so login still works; real AD stays primary.
-            if getattr(settings, "LDAP_DEV_FALLBACK", False):
-                from app.services.ldap_dev import dev_authenticate
-                profile = dev_authenticate(settings, login, password)
-            else:
-                raise
-
-    # Find existing account by AD username (sAMAccountName), then by email.
-    user = await db.scalar(select(User).where(User.username == profile.username))
-    if not user and profile.email:
-        user = await db.scalar(select(User).where(User.email == profile.email))
-
-    # Resolve role: hint/groups/default, with instructor-override applied.
-    role = _resolve_role(profile)
-
-    if not user:
-        # Just-in-time provisioning — accounts are governed by AD.
-        email = profile.email or f"{profile.username}@{settings.ALLOWED_EMAIL_DOMAIN}"
-        user = User(
-            username=profile.username,
-            password_hash=hash_password(secrets.token_urlsafe(32)),  # unusable local password
-            email=email,
-            name=profile.display_name,
-            role=role,
-            modules=json.dumps([], ensure_ascii=False),
-            student_id=profile.username if role == Role.STUDENT else None,
-        )
-        db.add(user)
-    else:
-        if not user.is_active:
-            raise ValueError("บัญชีนี้ถูกระงับการใช้งาน")
-        # Keep role + identity in sync with the authoritative directory on each login.
-        user.role = role
-        if profile.display_name:
-            user.name = profile.display_name
-        if profile.email:
-            user.email = profile.email
-
-    user.last_login = datetime.now(timezone.utc)
-    await db.commit()
-    await db.refresh(user)
-    return user

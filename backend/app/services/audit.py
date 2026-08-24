@@ -33,7 +33,7 @@ if not logger.handlers:
 
 def log_auth(event: str, *, username: str, ip: str, status: str, detail: str = "") -> None:
     """
-    event  — e.g. "ldap_login"
+    event  — e.g. "login"
     status — e.g. "success" | "invalid" | "locked" | "rate_limited" | "unavailable"
     """
     # username is user-controlled; keep it on one line and bounded.

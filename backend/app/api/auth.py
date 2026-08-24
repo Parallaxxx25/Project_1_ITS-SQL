@@ -18,8 +18,8 @@ from app.database import get_db
 from app.config import get_settings
 from app.schemas.user import GoogleTokenPayload, UserOut
 from app.schemas.auth import RegisterRequest, LoginRequest, ActivityRequest, AuthResponse, UserResponse
-from app.services.auth_service import google_login, register_user, login_user, ldap_login_user, create_token
-from app.services import ldap_service, audit
+from app.services.auth_service import google_login, register_user, login_user, create_token
+from app.services import audit
 from app.services.rate_limiter import login_rate_limiter
 from app.middleware.auth import get_current_user
 from app.models.user import User
@@ -42,7 +42,7 @@ def _throttle(request: Request, username: str) -> None:
     ip = _client_ip(request)
     for key in (f"ip:{ip}", f"user:{(username or '').strip().lower()}"):
         allowed, retry_after = login_rate_limiter.hit(
-            key, settings.LDAP_RATE_LIMIT, settings.LDAP_RATE_WINDOW
+            key, settings.RATE_LIMIT_ATTEMPTS, settings.RATE_LIMIT_WINDOW
         )
         if not allowed:
             raise HTTPException(
@@ -103,13 +103,18 @@ async def register(body: RegisterRequest, request: Request, db: AsyncSession = D
 # ── POST /api/auth/login ──────────────────────────────────────
 @router.post("/login", response_model=AuthResponse)
 async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    """เข้าสู่ระบบด้วย username / password"""
+    """เข้าสู่ระบบด้วย username / password (ตรวจกับบัญชีที่ sign-up ไว้ใน SQLite)"""
     _throttle(request, body.username)
+    ip = _client_ip(request)
     try:
         user = await login_user(db, body)
     except ValueError as e:
+        audit.log_auth("login", username=body.username, ip=ip, status="invalid")
         raise HTTPException(status_code=401, detail=str(e))
 
+    login_rate_limiter.reset(f"ip:{ip}")
+    login_rate_limiter.reset(f"user:{(body.username or '').strip().lower()}")
+    audit.log_auth("login", username=user.username, ip=ip, status="success")
     token = create_token(user)
     return AuthResponse(
         success=True,
@@ -125,79 +130,7 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
     )
 
 
-# ── POST /api/auth/ldap-login ─────────────────────────────────
-# Statuses mapped to safe, user-facing messages (no server internals leaked).
-_LDAP_403 = (
-    ldap_service.LdapAccountDisabled,
-    ldap_service.LdapAccountLocked,
-    ldap_service.LdapPasswordExpired,
-    ldap_service.LdapMustResetPassword,
-    ldap_service.LdapLoginNotPermitted,
-)
-_LDAP_503 = (ldap_service.LdapUnavailable, ldap_service.LdapConfigError)
-
-
-@router.post("/ldap-login", response_model=AuthResponse)
-async def ldap_login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    """เข้าสู่ระบบผ่าน Active Directory / LDAP (2-step service bind)."""
-    if not settings.LDAP_ENABLED:
-        raise HTTPException(status_code=503, detail="ระบบ LDAP ปิดใช้งานอยู่")
-
-    ip = _client_ip(request)
-    username = (body.username or "").strip()
-
-    # ── Rate limiting: per IP AND per username (brute-force / AD-lockout guard) ──
-    for key in (f"ip:{ip}", f"user:{username.lower()}"):
-        allowed, retry_after = login_rate_limiter.hit(
-            key, settings.LDAP_RATE_LIMIT, settings.LDAP_RATE_WINDOW
-        )
-        if not allowed:
-            audit.log_auth("ldap_login", username=username, ip=ip, status="rate_limited")
-            raise HTTPException(
-                status_code=429,
-                detail=f"พยายามเข้าสู่ระบบบ่อยเกินไป กรุณารอ {retry_after} วินาทีแล้วลองใหม่",
-                headers={"Retry-After": str(retry_after)},
-            )
-
-    # ── Authenticate ──
-    try:
-        user = await ldap_login_user(db, username, body.password)
-    except (ldap_service.LdapInvalidCredentials, ldap_service.LdapUserNotFound) as e:
-        audit.log_auth("ldap_login", username=username, ip=ip, status="invalid")
-        raise HTTPException(status_code=401, detail=e.public_message)
-    except _LDAP_403 as e:
-        audit.log_auth("ldap_login", username=username, ip=ip, status="denied", detail=type(e).__name__)
-        raise HTTPException(status_code=403, detail=e.public_message)
-    except _LDAP_503 as e:
-        audit.log_auth("ldap_login", username=username, ip=ip, status="unavailable", detail=type(e).__name__)
-        raise HTTPException(status_code=503, detail=e.public_message)
-    except ValueError as e:  # local account deactivated
-        audit.log_auth("ldap_login", username=username, ip=ip, status="deactivated")
-        raise HTTPException(status_code=403, detail=str(e))
-    except ldap_service.LdapError as e:  # any other LDAP failure
-        audit.log_auth("ldap_login", username=username, ip=ip, status="error", detail=type(e).__name__)
-        raise HTTPException(status_code=503, detail=e.public_message)
-
-    # ── Success: clear this identity's throttle counters ──
-    login_rate_limiter.reset(f"ip:{ip}")
-    login_rate_limiter.reset(f"user:{username.lower()}")
-    audit.log_auth("ldap_login", username=user.username, ip=ip, status="success")
-
-    return AuthResponse(
-        success=True,
-        token=create_token(user),
-        user=UserResponse(
-            id=user.id,
-            username=user.username,
-            email=user.email,
-            name=user.name,
-            role=user.role.value,
-            modules=user.modules_list(),
-        ),
-    )
-
-
-# ── GET /api/auth/me (เดิม — ไม่แตะ) ────────────────────────
+# ── GET /api/auth/me ────────────────────────────────────────
 @router.get("/me", response_model=UserOut)
 async def get_me(user: User = Depends(get_current_user)):
     """Return the currently authenticated user."""

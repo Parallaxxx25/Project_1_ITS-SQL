@@ -27,6 +27,43 @@ from app.models.submission import Submission, SubmissionLog
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# INSTRUCTOR ACCOUNTS — the ONLY pre-set instructors (seeded on startup).
+# Students self sign-up (role=student); these 3 are role=instructor.
+# ═══════════════════════════════════════════════════════════════════════
+INSTRUCTOR_SEED = [
+    {"username": "aj001",      "password": "aj001",    "name": "Instructor aj001",  "email": "aj001@kmitl.ac.th"},
+    {"username": "it66070126", "password": "NLKctw25", "name": "นายพชร พรอโนทัย",     "email": "it66070126@kmitl.ac.th"},
+    {"username": "it66070066", "password": "LGHuuh18", "name": "นายณัฐวีร์ เเนกำพล",  "email": "it66070066@kmitl.ac.th"},
+]
+
+
+async def ensure_instructors():
+    """Idempotently seed the 3 fixed instructor accounts. Safe on every startup:
+    creates missing ones and repairs role/name/password/active on existing so the
+    known credentials always work."""
+    from app.services.auth_service import hash_password
+    async with AsyncSessionLocal() as db:
+        for u in INSTRUCTOR_SEED:
+            existing = await db.scalar(select(User).where(User.username == u["username"]))
+            if existing:
+                existing.role = Role.INSTRUCTOR
+                existing.is_active = True
+                existing.name = u["name"]
+                existing.password_hash = hash_password(u["password"])
+            else:
+                db.add(User(
+                    username=u["username"],
+                    password_hash=hash_password(u["password"]),
+                    email=u["email"],
+                    name=u["name"],
+                    role=Role.INSTRUCTOR,
+                    modules="[]",
+                ))
+        await db.commit()
+    print(f"✅  Instructors ensured: {', '.join(u['username'] for u in INSTRUCTOR_SEED)}")
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # RAW PROBLEMS DATA (ported from frontend/src/lib/problems.js)
 # ═══════════════════════════════════════════════════════════════════════
 

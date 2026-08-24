@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 
-// ── Enterprise LDAP / Active Directory sign-in ──────────────────────
-// Accounts are managed centrally in Active Directory — there is intentionally
-// NO registration / create-account flow here (spec requirement).
+// ── Username / password sign-in + sign-up ───────────────────────────
+// Accounts live in the backend SQLite DB (bcrypt-hashed). Students self
+// sign-up (role=student); 3 instructor accounts are pre-seeded server-side.
 
 export default function Login({ onLogin, onClose, loginError }) {
   const [isLoading, setIsLoading] = useState(false);
@@ -12,6 +12,8 @@ export default function Login({ onLogin, onClose, loginError }) {
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [name,     setName]     = useState('');
+  const [mode,     setMode]     = useState('signin'); // 'signin' | 'signup'
 
   // Animated multilingual greeting in the footer.
   const [displayText, setDisplayText] = useState('');
@@ -45,17 +47,40 @@ export default function Login({ onLogin, onClose, loginError }) {
     setTimeout(() => setShake(false), 500);
   };
 
-  const handleLogin = async () => {
+  // FastAPI 422 returns detail as an array of errors; string otherwise.
+  const extractMsg = (data, fallback) => {
+    const d = data?.detail;
+    if (Array.isArray(d)) return d[0]?.msg || fallback;
+    return d || fallback;
+  };
+
+  // Sign in → POST /auth/login ; Sign up → POST /auth/register.
+  // Accounts live in the backend SQLite DB (bcrypt-hashed). No LDAP.
+  const handleSubmit = async () => {
     if (isLoading) return;                                   // double-submit guard
     if (!username.trim() || !password) {
       triggerError('กรุณากรอก Username และ Password'); return;
     }
+    if (mode === 'signup' && !name.trim()) {
+      triggerError('กรุณากรอกชื่อ-นามสกุล'); return;
+    }
+    if (password.length < 6) {
+      triggerError('Password ต้องมีอย่างน้อย 6 ตัวอักษร'); return;
+    }
     setIsLoading(true); setError('');
+    // VITE_API_URL points at the hosted backend in production (e.g.
+    // https://backend.example.com/api). Unset in dev → '/api' (Vite proxy).
+    const API_BASE = import.meta.env.VITE_API_URL || '/api';
+    const uname = username.trim();
+    const path = mode === 'signup' ? '/auth/register' : '/auth/login';
+    const payload = mode === 'signup'
+      ? { username: uname, password, name: name.trim(), email: `${uname}@kmitl.ac.th`, role: 'student', modules: [] }
+      : { username: uname, password };
     try {
-      const res = await fetch('/api/auth/ldap-login', {
+      const res = await fetch(`${API_BASE}${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), password }),
+        body: JSON.stringify(payload),
       });
       let data = {};
       try { data = await res.json(); } catch { /* non-JSON error page */ }
@@ -64,22 +89,30 @@ export default function Login({ onLogin, onClose, loginError }) {
         localStorage.setItem('its_token', data.token);
         onLogin(data.user);
       } else if (res.status === 429) {
-        triggerError(data.detail || 'พยายามเข้าสู่ระบบบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่');
-      } else if (res.status === 503) {
-        triggerError(data.detail || 'ระบบยืนยันตัวตนไม่พร้อมใช้งาน กรุณาลองใหม่ภายหลัง');
+        triggerError(extractMsg(data, 'พยายามบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่'));
+      } else if (res.status === 409) {
+        triggerError(extractMsg(data, 'Username หรือ Email นี้ถูกใช้แล้ว'));
+      } else if (res.status === 400 || res.status === 422) {
+        triggerError(extractMsg(data, 'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง'));
+      } else if (res.status === 401) {
+        triggerError(extractMsg(data, 'Username หรือ Password ไม่ถูกต้อง'));
       } else {
-        // 401/403 and everything else — never auto-login (no mock fallback).
-        triggerError(data.detail || 'Username หรือ Password ไม่ถูกต้อง');
+        triggerError(extractMsg(data, 'เกิดข้อผิดพลาด กรุณาลองใหม่'));
       }
     } catch {
-      // Network/CORS failure — surface it; do NOT silently grant access.
+      // Network/CORS failure — surface it; never silently grant access.
       triggerError('ไม่สามารถเชื่อมต่อระบบได้ กรุณาตรวจสอบเครือข่ายแล้วลองใหม่');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const onSubmit = (e) => { e.preventDefault(); handleLogin(); };
+  const onSubmit = (e) => { e.preventDefault(); handleSubmit(); };
+
+  const switchMode = () => {
+    setMode((m) => (m === 'signin' ? 'signup' : 'signin'));
+    setError('');
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-300">
@@ -99,9 +132,9 @@ export default function Login({ onLogin, onClose, loginError }) {
             <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
               <svg className="w-6 h-6 text-[#03045e]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
             </div>
-            <h3 className="text-2xl font-black text-[#03045e] tracking-tight">เข้าสู่ระบบ</h3>
+            <h3 className="text-2xl font-black text-[#03045e] tracking-tight">{mode === 'signup' ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</h3>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mt-2">
-              KMITL Account · Sign In
+              {mode === 'signup' ? 'Create Account' : 'Sign In'}
             </p>
           </div>
         </div>
@@ -122,6 +155,18 @@ export default function Login({ onLogin, onClose, loginError }) {
           )}
 
           <div className="space-y-4">
+            {mode === 'signup' && (
+              <InputField
+                id="name"
+                label="ชื่อ-นามสกุล"
+                icon="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                placeholder="ชื่อ นามสกุล"
+                value={name}
+                autoComplete="name"
+                onChange={e => setName(e.target.value)}
+              />
+            )}
+
             <InputField
               id="username"
               label="Username"
@@ -163,16 +208,18 @@ export default function Login({ onLogin, onClose, loginError }) {
             {isLoading ? (
               <>
                 <svg className="animate-spin w-4 h-4 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                กำลังเข้าสู่ระบบ…
+                {mode === 'signup' ? 'กำลังสมัคร…' : 'กำลังเข้าสู่ระบบ…'}
               </>
-            ) : 'Sign In'}
+            ) : (mode === 'signup' ? 'Sign Up' : 'Sign In')}
           </button>
 
-          {/* Help / IT Service Desk */}
-          <div className="text-center pt-1">
+          {/* Toggle sign in / sign up */}
+          <div className="text-center pt-1 space-y-2">
+            <button type="button" onClick={switchMode} className="text-xs font-bold text-[#03045e] hover:underline">
+              {mode === 'signup' ? 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ' : 'ยังไม่มีบัญชี? สมัครสมาชิก (นักศึกษา)'}
+            </button>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              ลืมรหัสผ่าน หรือเข้าสู่ระบบไม่ได้?<br />
-              ติดต่อ <span className="font-semibold text-slate-500">IT Service Desk</span> เพื่อขอความช่วยเหลือ
+              บัญชีอาจารย์ถูกตั้งไว้ให้แล้ว · ติดต่อ <span className="font-semibold text-slate-500">IT Service Desk</span> หากมีปัญหา
             </p>
           </div>
         </form>

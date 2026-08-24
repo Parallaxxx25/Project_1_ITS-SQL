@@ -37,10 +37,10 @@ async def lifespan(app: FastAPI):
     # Import models so SQLAlchemy registers them before create_all
     import app.models  # noqa: F401
     await init_db()
-    print(f"✅  {settings.APP_NAME} started — DB tables created")
-    if settings.LDAP_DEV_MODE:
-        print("⚠️   LDAP_DEV_MODE=ON — login uses LOCAL test users, NOT Active Directory. "
-              "Set LDAP_DEV_MODE=false in production.")
+    # Seed the 3 fixed instructor accounts (idempotent).
+    from app.seed import ensure_instructors
+    await ensure_instructors()
+    print(f"✅  {settings.APP_NAME} started — DB ready, instructors seeded")
     yield
     # ── Shutdown ──
     print(f"🛑  {settings.APP_NAME} shutting down")
