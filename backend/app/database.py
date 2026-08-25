@@ -31,6 +31,13 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Create all tables on startup."""
+    """Create all tables on startup + tiny additive migration for existing DBs
+    (create_all does NOT alter existing tables)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        if "sqlite" in settings.DATABASE_URL:
+            for col in ("first_name VARCHAR(100)", "last_name VARCHAR(100)"):
+                try:
+                    await conn.exec_driver_sql(f"ALTER TABLE users ADD COLUMN {col}")
+                except Exception:
+                    pass  # column already exists

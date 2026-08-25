@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ensureInstructors, signup, login } from '../lib/client-auth';
 
 // ── Username / password sign-in + sign-up ───────────────────────────
 // Accounts live in the backend SQLite DB (bcrypt-hashed). Students self
@@ -42,20 +43,16 @@ export default function Login({ onLogin, onClose, loginError }) {
     if (loginError) triggerError(loginError);
   }, [loginError]);
 
+  // Seed the 3 fixed instructor accounts into localStorage on first open.
+  useEffect(() => { ensureInstructors(); }, []);
+
   const triggerError = (msg) => {
     setError(msg); setShake(true);
     setTimeout(() => setShake(false), 500);
   };
 
-  // FastAPI 422 returns detail as an array of errors; string otherwise.
-  const extractMsg = (data, fallback) => {
-    const d = data?.detail;
-    if (Array.isArray(d)) return d[0]?.msg || fallback;
-    return d || fallback;
-  };
-
-  // Sign in → POST /auth/login ; Sign up → POST /auth/register.
-  // Accounts live in the backend SQLite DB (bcrypt-hashed). No LDAP.
+  // Browser-only auth (no backend) — see lib/client-auth.js.
+  // Sign in / Sign up both resolve against localStorage; works on any static host.
   const handleSubmit = async () => {
     if (isLoading) return;                                   // double-submit guard
     if (!username.trim() || !password) {
@@ -68,40 +65,15 @@ export default function Login({ onLogin, onClose, loginError }) {
       triggerError('Password ต้องมีอย่างน้อย 6 ตัวอักษร'); return;
     }
     setIsLoading(true); setError('');
-    // VITE_API_URL points at the hosted backend in production (e.g.
-    // https://backend.example.com/api). Unset in dev → '/api' (Vite proxy).
-    const API_BASE = import.meta.env.VITE_API_URL || '/api';
-    const uname = username.trim();
-    const path = mode === 'signup' ? '/auth/register' : '/auth/login';
-    const payload = mode === 'signup'
-      ? { username: uname, password, name: name.trim(), email: `${uname}@kmitl.ac.th`, role: 'student', modules: [] }
-      : { username: uname, password };
     try {
-      const res = await fetch(`${API_BASE}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      let data = {};
-      try { data = await res.json(); } catch { /* non-JSON error page */ }
-
-      if (res.ok && data.success) {
-        localStorage.setItem('its_token', data.token);
-        onLogin(data.user);
-      } else if (res.status === 429) {
-        triggerError(extractMsg(data, 'พยายามบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่'));
-      } else if (res.status === 409) {
-        triggerError(extractMsg(data, 'Username หรือ Email นี้ถูกใช้แล้ว'));
-      } else if (res.status === 400 || res.status === 422) {
-        triggerError(extractMsg(data, 'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง'));
-      } else if (res.status === 401) {
-        triggerError(extractMsg(data, 'Username หรือ Password ไม่ถูกต้อง'));
-      } else {
-        triggerError(extractMsg(data, 'เกิดข้อผิดพลาด กรุณาลองใหม่'));
-      }
-    } catch {
-      // Network/CORS failure — surface it; never silently grant access.
-      triggerError('ไม่สามารถเชื่อมต่อระบบได้ กรุณาตรวจสอบเครือข่ายแล้วลองใหม่');
+      await ensureInstructors();                            // guarantee the 3 exist
+      const user = mode === 'signup'
+        ? await signup({ username, password, name })
+        : await login({ username, password });
+      localStorage.setItem('its_token', 'local-' + Date.now());
+      onLogin(user);
+    } catch (e) {
+      triggerError(e?.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
     } finally {
       setIsLoading(false);
     }
@@ -171,7 +143,7 @@ export default function Login({ onLogin, onClose, loginError }) {
               id="username"
               label="Username"
               icon="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-              placeholder="รหัสนักศึกษา / บัญชี KMITL"
+              placeholder="ชื่อผู้ใช้"
               value={username}
               autoComplete="username"
               onChange={e => setUsername(e.target.value)}
@@ -214,13 +186,10 @@ export default function Login({ onLogin, onClose, loginError }) {
           </button>
 
           {/* Toggle sign in / sign up */}
-          <div className="text-center pt-1 space-y-2">
+          <div className="text-center pt-1">
             <button type="button" onClick={switchMode} className="text-xs font-bold text-[#03045e] hover:underline">
-              {mode === 'signup' ? 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ' : 'ยังไม่มีบัญชี? สมัครสมาชิก (นักศึกษา)'}
+              {mode === 'signup' ? 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ' : 'ยังไม่มีบัญชี? สมัครสมาชิก'}
             </button>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              บัญชีอาจารย์ถูกตั้งไว้ให้แล้ว · ติดต่อ <span className="font-semibold text-slate-500">IT Service Desk</span> หากมีปัญหา
-            </p>
           </div>
         </form>
 

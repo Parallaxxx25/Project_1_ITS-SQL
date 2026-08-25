@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { enrollInCourse } from '../lib/api';
 import kmitlLogo from '../assets/it.png'; 
 
 const INITIAL_COURSE_DATA = [
@@ -59,27 +58,18 @@ export default function Home({ onNavigate, user }) {
     setIsEnrolling(true);
     setError('');
 
-    try {
-      await enrollInCourse(selectedCourse.id, accessCode);
+    // Client-only: validate the access code locally (no backend).
+    const validCodes = [selectedCourse.code, selectedCourse.access_code, 'ITSSQL2025'].filter(Boolean);
+    if (validCodes.includes((accessCode || '').trim())) {
       const newList = { ...enrolledList, [selectedCourse.id]: true };
       if (user?.id) localStorage.setItem(`user_enrolled_${user.id}`, JSON.stringify(newList));
       setEnrolledList(newList);
       setSelectedCourse(null);
       onNavigate('coursetext');
-    } catch (apiErr) {
-      const validCodes = [selectedCourse.code, 'ITSSQL2025'];
-      if (validCodes.includes(accessCode)) {
-        const newList = { ...enrolledList, [selectedCourse.id]: true };
-        if (user?.id) localStorage.setItem(`user_enrolled_${user.id}`, JSON.stringify(newList));
-        setEnrolledList(newList);
-        setSelectedCourse(null);
-        onNavigate('coursetext');
-      } else {
-        setError(apiErr?.message || 'Invalid Access Code. Please try again.');
-      }
-    } finally {
-      setIsEnrolling(false);
+    } else {
+      setError('Invalid Access Code. Please try again.');
     }
+    setIsEnrolling(false);
   };
 
   return (

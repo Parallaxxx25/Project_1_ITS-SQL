@@ -1,0 +1,30 @@
+# Render.com blueprint — deploy the FastAPI backend (auth + SQLite).
+#
+# Steps:
+#   1. Push this repo to GitHub.
+#   2. Render → New → Blueprint → select this repo (reads backend/render.yaml).
+#   3. When live, copy the service URL (e.g. https://dblearn-backend.onrender.com)
+#      → Vercel → Settings → Environment Variables:
+#           VITE_API_URL = https://dblearn-backend.onrender.com/api
+#      → Redeploy the Vercel frontend.
+#   4. Update FRONTEND_URL below to your exact Vercel domain (CORS).
+services:
+  - type: web
+    name: dblearn-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true          # random, stable per service
+      - key: DEBUG
+        value: "false"
+      - key: FRONTEND_URL
+        value: https://new-dblearn.vercel.app
+      # ⚠️ Free plan has NO persistent disk: SQLite resets on redeploy/sleep.
+      # The 3 instructors re-seed on every boot (fine), but STUDENT sign-ups are
+      # lost on restart. For durable accounts: add a Render Disk (paid) mounted at
+      # /var/data and set DATABASE_URL=sqlite+aiosqlite:////var/data/its_sql.db,
+      # or switch to a managed Postgres.

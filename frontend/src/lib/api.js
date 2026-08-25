@@ -3,7 +3,13 @@
  * Replaces localStorage/DuckDB-WASM for data operations.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+// Normalized to always end with '/api'. Set VITE_API_URL to the hosted backend
+// in production (with or without the /api suffix). Dev: unset → '/api' (Vite proxy).
+const API_BASE = (() => {
+  let b = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '');
+  if (!/\/api$/.test(b)) b += '/api';
+  return b;
+})();
 
 // ─── Token Management ─────────────────────────────────────
 

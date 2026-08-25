@@ -20,6 +20,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     student_id: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True, index=True)
     role: Mapped[Role] = mapped_column(Enum(Role), default=Role.STUDENT, nullable=False)
     modules: Mapped[str | None] = mapped_column(Text, nullable=True)   # JSON string e.g. '["sql","python"]'
