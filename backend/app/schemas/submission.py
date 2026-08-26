@@ -26,6 +26,7 @@ class SubmissionOut(BaseModel):
 
 
 class GradingResult(BaseModel):
+    submission_id: int | None = None
     is_correct: bool
     execution_time_ms: float
     error_message: str | None = None
@@ -33,6 +34,10 @@ class GradingResult(BaseModel):
     expected_result: dict | None = None
     comparison: dict | None = None
     hints: list[str] = []
+    # True when the tutor service minted a hint_token for this submission —
+    # tells the frontend whether to show the "get a hint" button. The token
+    # itself never appears here; fetch it via POST /submissions/{id}/hint.
+    hint_available: bool = False
 
 
 # ── Assignment ──

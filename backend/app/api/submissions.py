@@ -15,6 +15,7 @@ from app.models.assignment import Assignment
 from app.schemas.submission import SubmissionCreate, SubmissionOut, GradingResult
 from app.middleware.auth import get_current_user, require_ta
 from app.services.grading_service import grade_submission
+from app.services import tutor_client
 
 router = APIRouter(prefix="/submissions", tags=["Submissions"])
 
@@ -76,11 +77,33 @@ async def submit_query(
     )
     attempt_number = attempt_result.scalar() + 1
 
-    # Grade the submission
+    # Grade the submission — this platform's own SQLite sandbox decides the
+    # verdict the student sees.
     grading_result = await grade_submission(
         student_query=payload.query,
         problem=problem,
     )
+
+    # Run the tutor service alongside, purely to mint a hint_token — never
+    # on the critical path (see app/services/tutor_client.py). Only called
+    # for problems the tutor service actually has a gold query for.
+    hint_token = None
+    tutor_verdict = None
+    if problem.tutor_problem_id is not None:
+        tutor_resp = await tutor_client.grade(
+            external_user_id=str(user.id),
+            problem_id=problem.tutor_problem_id,
+            query=payload.query,
+            partner_verdict="pass" if grading_result.is_correct else "fail",
+            # Deterministic per (student, problem, attempt) — a genuine
+            # network retry of this same attempt replays instead of
+            # double-counting; a later attempt gets its own key.
+            client_submission_id=f"its-sql:{user.id}:{payload.problem_id}:{attempt_number}",
+        )
+        if tutor_resp is not None:
+            hint_token = tutor_resp.get("hint_token")
+            tutor_verdict = tutor_resp.get("verdict")
+            grading_result.hint_available = bool(tutor_resp.get("hint_available"))
 
     # Save submission
     submission = Submission(
@@ -93,6 +116,8 @@ async def submit_query(
         error_message=grading_result.error_message,
         result_snapshot=grading_result.student_result,
         attempt_number=attempt_number,
+        hint_token=hint_token,
+        tutor_verdict=tutor_verdict,
     )
     db.add(submission)
 
@@ -109,7 +134,32 @@ async def submit_query(
 
     await db.commit()
 
+    grading_result.submission_id = submission.id
     return grading_result
+
+
+@router.post("/{submission_id}/hint")
+async def get_hint(
+    submission_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Passthrough to the tutor service's POST /api/v1/hint. The hint_token
+    never reaches the browser — the frontend only ever knows submission_id,
+    and ownership is checked here before it's used.
+    """
+    result = await db.execute(select(Submission).where(Submission.id == submission_id))
+    submission = result.scalar_one_or_none()
+    if not submission or submission.user_id != user.id:
+        raise HTTPException(404, "Submission not found")
+    if not submission.hint_token:
+        raise HTTPException(400, "No hint available for this submission")
+
+    tutor_resp = await tutor_client.hint(submission.hint_token)
+    if tutor_resp is None:
+        raise HTTPException(503, "Hint service unavailable — try again in a moment")
+    return tutor_resp
 
 
 @router.get("/my", response_model=List[SubmissionOut])

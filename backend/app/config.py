@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_KEY: str = ""
 
+    # ── Tutor grading + hint service (github.com/Parallaxxx25/intelligent-tutor) ──
+    # Empty TUTOR_SERVICE_URL disables the integration entirely — submissions
+    # still grade normally via this platform's own SQLite sandbox, they just
+    # never get a hint_token and the hint button never shows.
+    TUTOR_SERVICE_URL: str = ""
+    TUTOR_SERVICE_KEY: str = ""
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

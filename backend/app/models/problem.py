@@ -24,6 +24,11 @@ class Problem(Base):
     table_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Primary table for display
     requirements: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # List of requirement strings
     order_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # This problem's id in the tutor service's own catalog (matched via its
+    # GET /api/v1/problems, keyed on external_problem_id = our Problem.id).
+    # NULL means the tutor service has no gold query for this problem, so
+    # submissions to it never get a hint_token.
+    tutor_problem_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
     lesson = relationship("Lesson", back_populates="problems")

@@ -36,8 +36,14 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         if "sqlite" in settings.DATABASE_URL:
-            for col in ("first_name VARCHAR(100)", "last_name VARCHAR(100)"):
+            for table, col in (
+                ("users", "first_name VARCHAR(100)"),
+                ("users", "last_name VARCHAR(100)"),
+                ("problems", "tutor_problem_id INTEGER"),
+                ("submissions", "hint_token VARCHAR(64)"),
+                ("submissions", "tutor_verdict VARCHAR(16)"),
+            ):
                 try:
-                    await conn.exec_driver_sql(f"ALTER TABLE users ADD COLUMN {col}")
+                    await conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {col}")
                 except Exception:
                     pass  # column already exists

@@ -23,6 +23,15 @@ class Submission(Base):
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
+    # Opaque handle for POST /submissions/{id}/hint — minted by the tutor
+    # service's /api/v1/grade, never sent to the browser directly. NULL if
+    # the tutor service wasn't called (no tutor_problem_id) or didn't
+    # respond (see app/services/tutor_client.py).
+    hint_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The tutor service's own verdict ("pass" | "fail" | "ungradable") for
+    # this same query, when it responded — kept for analytics/debugging
+    # dialect divergence, never used to override is_correct above.
+    tutor_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="submissions")
