@@ -1,32 +1,23 @@
 /**
- * auth-api.js — talks to POST /api/signup and /api/login, manages the JWT.
- * Set VITE_API_URL to the hosted backend in production (with or without /api).
+ * auth-api.js — talks to POST /api/auth/register and /api/auth/login.
+ *
+ * Deliberately not /api/signup + /api/login (app/api/accounts.py) — those
+ * mint a JWT with an "id" claim, but every backend endpoint that requires
+ * login (including the tutor-hint passthrough, see api.js::requestClientHint)
+ * checks for a "sub" claim via middleware/auth.py::get_current_user. Only
+ * /api/auth/register + /api/auth/login (app/api/auth.py) mint that shape.
+ *
+ * Token storage is delegated to lib/api.js's setToken/clearAuth so every
+ * other authenticated call in the app (which goes through api.js's
+ * apiFetch) picks up the same session.
  */
+import { setToken as setApiToken, clearAuth as clearApiAuth } from './api';
+
 const API_BASE = (() => {
   let b = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '');
   if (!/\/api$/.test(b)) b += '/api';
   return b;
 })();
-
-const TOKEN_KEY = 'dblearn_token';
-
-export function getToken() { return localStorage.getItem(TOKEN_KEY); }
-export function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
-export function clearToken() { localStorage.removeItem(TOKEN_KEY); }
-
-/** Decode the JWT payload; returns null if missing/expired/invalid. */
-export function getUser() {
-  const t = getToken();
-  if (!t) return null;
-  try {
-    const p = JSON.parse(atob(t.split('.')[1]));
-    if (p.exp && Date.now() / 1000 > p.exp) { clearToken(); return null; }
-    return p; // { id, username, first_name, last_name, iat, exp }
-  } catch { clearToken(); return null; }
-}
-
-export function isAuthenticated() { return !!getUser(); }
-export function logout() { clearToken(); }
 
 async function post(path, body) {
   let res;
@@ -51,12 +42,30 @@ async function post(path, body) {
   return data;
 }
 
-/** { first_name, last_name, username, password } → { user }. Does NOT log in. */
-export function signup(payload) { return post('/signup', payload); }
+/**
+ * { username, password, name } -> the logged-in user. Registers with a
+ * synthesized @kmitl.ac.th email (the backend's RegisterRequest requires
+ * one; this form only collects a single name field, matching the retired
+ * client-side auth's own convention for the same reason).
+ */
+export async function signup({ username, password, name }) {
+  const data = await post('/auth/register', {
+    username,
+    password,
+    name,
+    email: `${username}@kmitl.ac.th`,
+  });
+  setApiToken(data.token);
+  return data.user;
+}
 
-/** { username, password } → { token, user }; stores the token on success. */
-export async function login(payload) {
-  const data = await post('/login', payload);
-  if (data.token) setToken(data.token);
-  return data;
+/** { username, password } -> the logged-in user. */
+export async function login({ username, password }) {
+  const data = await post('/auth/login', { username, password });
+  setApiToken(data.token);
+  return data.user;
+}
+
+export function logout() {
+  clearApiAuth();
 }

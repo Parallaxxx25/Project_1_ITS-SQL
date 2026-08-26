@@ -10,9 +10,15 @@ from typing import List
 from app.database import get_db
 from app.models.user import User, Role
 from app.models.problem import Problem
-from app.models.submission import Submission, SubmissionLog
+from app.models.submission import Submission, SubmissionLog, HintRequest
 from app.models.assignment import Assignment
-from app.schemas.submission import SubmissionCreate, SubmissionOut, GradingResult
+from app.schemas.submission import (
+    SubmissionCreate,
+    SubmissionOut,
+    GradingResult,
+    HintRequestIn,
+    HintRequestOut,
+)
 from app.middleware.auth import get_current_user, require_ta
 from app.services.grading_service import grade_submission
 from app.services import tutor_client
@@ -157,6 +163,71 @@ async def get_hint(
         raise HTTPException(400, "No hint available for this submission")
 
     tutor_resp = await tutor_client.hint(submission.hint_token)
+    if tutor_resp is None:
+        raise HTTPException(503, "Hint service unavailable — try again in a moment")
+    return tutor_resp
+
+
+# ── Client-graded flow ──────────────────────────────────────────────
+# The live frontend grades entirely in the browser (DuckDB-WASM, see
+# App.jsx::handleSubmit) and never calls POST /submissions above — these
+# two endpoints are the actual path the tutor service is reached from.
+# is_correct here is client-reported and NOT written to Submission/
+# SubmissionLog (see HintRequest's docstring) — it only ever decides
+# whether a hint gets offered, never anything an instructor dashboard
+# would trust as a grade.
+
+
+@router.post("/hint-request", response_model=HintRequestOut)
+async def request_hint(
+    payload: HintRequestIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Forward a client-graded result to the tutor service purely to mint
+    a hint_token. Returns hint_available=False (no error) if the tutor
+    service didn't respond."""
+    tutor_resp = await tutor_client.grade(
+        external_user_id=str(user.id),
+        problem_id=payload.tutor_problem_id,
+        query=payload.query,
+        partner_verdict="pass" if payload.is_correct else "fail",
+        # Deterministic per (student, problem, attempt) — a genuine retry
+        # of this same attempt replays instead of double-counting.
+        client_submission_id=f"its-sql-client:{user.id}:{payload.tutor_problem_id}:{payload.attempt_number}",
+    )
+    if tutor_resp is None or not tutor_resp.get("hint_available"):
+        return HintRequestOut(hint_available=False)
+
+    hint_req = HintRequest(
+        user_id=user.id,
+        tutor_problem_id=payload.tutor_problem_id,
+        hint_token=tutor_resp.get("hint_token"),
+    )
+    db.add(hint_req)
+    await db.commit()
+    await db.refresh(hint_req)
+
+    return HintRequestOut(hint_request_id=hint_req.id, hint_available=True)
+
+
+@router.post("/hint-request/{hint_request_id}/hint")
+async def get_client_hint(
+    hint_request_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Passthrough to the tutor service's POST /api/v1/hint for a
+    client-graded submission. Ownership is checked before the stored
+    hint_token is used — the token itself never reaches the browser."""
+    result = await db.execute(select(HintRequest).where(HintRequest.id == hint_request_id))
+    hint_req = result.scalar_one_or_none()
+    if not hint_req or hint_req.user_id != user.id:
+        raise HTTPException(404, "Hint request not found")
+    if not hint_req.hint_token:
+        raise HTTPException(400, "No hint available for this request")
+
+    tutor_resp = await tutor_client.hint(hint_req.hint_token)
     if tutor_resp is None:
         raise HTTPException(503, "Hint service unavailable — try again in a moment")
     return tutor_resp

@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { ensureInstructors, signup, login } from '../lib/client-auth';
+import { signup, login } from '../lib/auth-api';
 
 // ── Username / password sign-in + sign-up ───────────────────────────
-// Accounts live in the backend SQLite DB (bcrypt-hashed). Students self
-// sign-up (role=student); 3 instructor accounts are pre-seeded server-side.
+// Accounts live in the backend SQLite DB (bcrypt-hashed, see
+// app/api/auth.py). Students self sign-up (role=student); the 3
+// instructor accounts are pre-seeded server-side on every startup
+// (app/seed.py::ensure_instructors) with the same fixed credentials
+// this form used to seed into localStorage.
 
 export default function Login({ onLogin, onClose, loginError }) {
   const [isLoading, setIsLoading] = useState(false);
@@ -43,16 +46,13 @@ export default function Login({ onLogin, onClose, loginError }) {
     if (loginError) triggerError(loginError);
   }, [loginError]);
 
-  // Seed the 3 fixed instructor accounts into localStorage on first open.
-  useEffect(() => { ensureInstructors(); }, []);
-
   const triggerError = (msg) => {
     setError(msg); setShake(true);
     setTimeout(() => setShake(false), 500);
   };
 
-  // Browser-only auth (no backend) — see lib/client-auth.js.
-  // Sign in / Sign up both resolve against localStorage; works on any static host.
+  // Sign in / sign up against the real backend (app/api/auth.py) — see
+  // lib/auth-api.js for why /api/auth/* specifically, not /api/signup.
   const handleSubmit = async () => {
     if (isLoading) return;                                   // double-submit guard
     if (!username.trim() || !password) {
@@ -66,11 +66,9 @@ export default function Login({ onLogin, onClose, loginError }) {
     }
     setIsLoading(true); setError('');
     try {
-      await ensureInstructors();                            // guarantee the 3 exist
       const user = mode === 'signup'
         ? await signup({ username, password, name })
         : await login({ username, password });
-      localStorage.setItem('its_token', 'local-' + Date.now());
       onLogin(user);
     } catch (e) {
       triggerError(e?.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่');

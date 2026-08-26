@@ -102,18 +102,26 @@ const rawProblems = [
   // 1. COURSE
   // ==========================================
   // ✨ เพิ่มโจทย์จำลองให้ Module 01 (Database Fundamentals) เพื่อไม่ให้หน้าจอพัง
+  // tutorProblemId: hand-verified against the tutor service's own catalog —
+  // goldenQuery here is byte-identical to that problem's gold query there.
+  // Only these 4 are mapped; the rest of this catalog has no tutor-side
+  // equivalent yet, so no hint button shows for them.
   { id: 901, type: "COURSE", moduleId: "01", title: "Select All Stores (Intro)", category: "1.0 Intro", difficulty: "beginner",
-    description: "จงเขียน SQL Statement แสดงข้อมูลร้านค้าทั้งหมดเพื่อทำความเข้าใจโครงสร้างเบื้องต้น", table: "stores", goldenQuery: "SELECT * FROM stores;", starterCode: "SELECT " },
+    description: "จงเขียน SQL Statement แสดงข้อมูลร้านค้าทั้งหมดเพื่อทำความเข้าใจโครงสร้างเบื้องต้น", table: "stores", goldenQuery: "SELECT * FROM stores;", starterCode: "SELECT ",
+    tutorProblemId: 2 },
 
   // --- 1.1 Select (Module: 02) ---
   { id: 1, type: "COURSE", moduleId: "02", title: "Select All Products", category: "1.1 Select", difficulty: "beginner",
     description: "จงเขียน SQL Statement แสดงข้อมูลสินค้าทั้งหมด", table: "products", goldenQuery: "SELECT * FROM products;", starterCode: "SELECT ",
-    requirements: ["ใช้คำสั่ง SELECT ดึงข้อมูลจากตาราง products", "แสดงคอลัมน์ทั้งหมดด้วยเครื่องหมาย *"] },
+    requirements: ["ใช้คำสั่ง SELECT ดึงข้อมูลจากตาราง products", "แสดงคอลัมน์ทั้งหมดด้วยเครื่องหมาย *"],
+    tutorProblemId: 1 },
   { id: 2, type: "COURSE", moduleId: "02", title: "Select Staff Emails", category: "1.1 Select", difficulty: "beginner",
     description: "จงเขียน SQL Statement แสดงอีเมลของพนักงานทุกคน", table: "staffs", goldenQuery: "SELECT email FROM staffs;", starterCode: "SELECT ",
-    requirements: ["ใช้คำสั่ง SELECT เลือกข้อมูลจากตาราง staffs", "แสดงเฉพาะคอลัมน์ email เท่านั้น"] },
+    requirements: ["ใช้คำสั่ง SELECT เลือกข้อมูลจากตาราง staffs", "แสดงเฉพาะคอลัมน์ email เท่านั้น"],
+    tutorProblemId: 3 },
   { id: 3, type: "COURSE", moduleId: "02", title: "Select Brand Info", category: "1.1 Select", difficulty: "beginner",
     description: "จงเขียน SQL Statement แสดงรหัสยี่ห้อ และ ชื่อยี่ห้อทั้งหมด", table: "brands", goldenQuery: "SELECT brand_id, brand_name FROM brands;", starterCode: "SELECT ",
+    tutorProblemId: 5,
     requirements: ["ดึงข้อมูลจากตาราง brands", "แสดงคอลัมน์ brand_id และ brand_name"] },
   { id: 4, type: "COURSE", moduleId: "02", title: "Calculate Total Price", category: "1.1 Select", difficulty: "intermediate",
     description: "จงเขียน SQL Statement แสดงรหัสรายการสั่งซื้อ, รหัสสินค้า, และ คำนวณราคาทั้งหมด (quantity * list_price) ตั้งชื่อคอลัมน์ว่า 'Total Price'", table: "order_items", goldenQuery: "SELECT item_id, product_id, quantity * list_price AS 'Total Price' FROM order_items;", starterCode: "SELECT ",

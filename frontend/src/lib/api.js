@@ -240,6 +240,36 @@ export async function submitQuery(problemId, query, assignmentId = null) {
   });
 }
 
+// The tutor service's own /hint can take several seconds (an LLM call) —
+// well past the 15s default apiFetch timeout, so this passes a longer one.
+export async function requestHint(submissionId) {
+  return apiFetch(`/submissions/${submissionId}/hint`, { method: 'POST' }, 30000);
+}
+
+// ─── Tutor hint (client-graded flow) ───────────────────────
+// handleSubmit grades entirely in the browser (DuckDB-WASM) — these two
+// mirror POST /submissions/hint-request + POST /submissions/hint-request/{id}/hint,
+// the actual path the tutor service is reached from.
+
+// tutorProblemId is the tutor service's own problem id — see the
+// hand-mapped tutorProblemId field in lib/problems.js, not this problem's
+// own frontend id.
+export async function requestClientHint(tutorProblemId, query, isCorrect, attemptNumber = 1) {
+  return apiFetch('/submissions/hint-request', {
+    method: 'POST',
+    body: JSON.stringify({
+      tutor_problem_id: tutorProblemId,
+      query,
+      is_correct: isCorrect,
+      attempt_number: attemptNumber,
+    }),
+  });
+}
+
+export async function fetchClientHint(hintRequestId) {
+  return apiFetch(`/submissions/hint-request/${hintRequestId}/hint`, { method: 'POST' }, 30000);
+}
+
 export async function getMySubmissions(problemId = null, limit = 50) {
   let path = `/submissions/my?limit=${limit}`;
   if (problemId) path += `&problem_id=${problemId}`;

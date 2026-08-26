@@ -15,6 +15,8 @@ import { dbManager } from './lib/db-manager';
 import { getAllProblems } from './lib/problems';
 import { Verifier, stripSqlComments } from './lib/verifier';
 import { HintEngine } from './lib/hint-engine';
+import { requestClientHint, fetchClientHint } from './lib/api';
+import { logout as authApiLogout } from './lib/auth-api';
  
 import botIcon from './assets/bot.png';
 
@@ -94,7 +96,8 @@ export default function App() {
   const [workspaceMode, setWorkspaceMode] = useState(() => localStorage.getItem('workspaceMode') || 'COURSE');
 
   const handleLogout = useCallback(() => {
-    localStorage.removeItem('its_token');
+    authApiLogout();
+    localStorage.removeItem('its_token'); // vestigial key from the retired client-side-only auth
     setUser(null);
     navigateTo('home'); 
     sessionStorage.removeItem('userData');
@@ -196,8 +199,14 @@ export default function App() {
   const [currentHints, setCurrentHints] = useState([]);
   const [hintIndex, setHintIndex] = useState(0);
   const [isHintOpen, setIsHintOpen] = useState(false);
-  const [botAlert, setBotAlert] = useState(false); 
+  const [botAlert, setBotAlert] = useState(false);
   const hintRef = useRef(null);
+  // Tutor AI hint (see App.jsx::handleSubmit + the bot-button onClick below)
+  // is fetched on-demand — only when the student opens this panel, not on
+  // every failed submit, to keep it to one Gemini call per attempt.
+  // 'idle' | 'loading' | 'done' | 'unavailable'
+  const [tutorHintStatus, setTutorHintStatus] = useState('idle');
+  const lastAttemptRef = useRef({ query: '', attemptNumber: 0 });
 
   useEffect(() => { localStorage.setItem('selectedTab', selectedTab); }, [selectedTab]);
 
@@ -315,6 +324,7 @@ export default function App() {
         ? prev.attempts
         : (prev ? [{ code: prev.code, passed: prev.passed, timestamp: prev.timestamp, queryResult: prev.queryResult }] : []);
       const thisAttempt = { code, passed: isPassed, timestamp: new Date().toLocaleString(), submittedAt: Date.now(), durationMs, queryResult: safeResult };
+      lastAttemptRef.current = { query: code, attemptNumber: priorAttempts.length + 1, isCorrect: isPassed };
       // Latest fields stay top-level for backward compatibility (instructor grading, score view, etc.).
       const newSubmission = { ...thisAttempt, attempts: [...priorAttempts, thisAttempt] };
       existingSubs[currentProblem] = newSubmission;
@@ -343,6 +353,9 @@ export default function App() {
 
       let hints = [];
       if (!isPassed && mode !== 'EXAM') {
+        // Reset — a fresh failed attempt means the previous attempt's
+        // fetched (or unavailable) tutor hint no longer applies.
+        setTutorHintStatus('idle');
         hints = new HintEngine().generateHints(cleanCode, result, problemData);
         if (result.success && !hasSemicolon) hints = [{ message: "Syntax Error: SQL queries must end with a semicolon (;)." }];
         setCurrentHints(hints); setHintIndex(0); setBotAlert(true); 
@@ -370,6 +383,36 @@ export default function App() {
       setOverlay({ visible: true, status: 'error', message: err?.message || 'เกิดข้อผิดพลาดในการตรวจคำตอบ' });
       setTimeout(() => setOverlay({ visible: false }), 2500);
     }
+  };
+
+  // Fetches the tutor AI hint on-demand — called only when the student
+  // opens the hint panel (not on every failed submit), so the tutor
+  // service's Gemini call fires at most once per attempt. The local
+  // HintEngine hints already showing stay as the offline fallback if this
+  // never resolves.
+  const handleOpenHintPanel = () => {
+    const tutorProblemId = problemData?.tutorProblemId;
+    if (!tutorProblemId || tutorHintStatus !== 'idle') return;
+    const { query, attemptNumber, isCorrect } = lastAttemptRef.current;
+    if (!query || isCorrect) return;
+
+    setTutorHintStatus('loading');
+    (async () => {
+      try {
+        const req = await requestClientHint(tutorProblemId, query, isCorrect, attemptNumber);
+        if (!req.hint_available || !req.hint_request_id) {
+          setTutorHintStatus('unavailable');
+          return;
+        }
+        const tutorHint = await fetchClientHint(req.hint_request_id);
+        setCurrentHints((prev) => [{ message: tutorHint.hint_text }, ...prev]);
+        setHintIndex(0);
+        setTutorHintStatus('done');
+      } catch {
+        // Tutor service unreachable — the local hints already shown cover this.
+        setTutorHintStatus('unavailable');
+      }
+    })();
   };
 
   const handleStepChange = useCallback((newStep) => {
@@ -521,6 +564,11 @@ export default function App() {
                           Insight {hintIndex + 1} of {currentHints.length}
                         </span>
                       </div>
+                      {tutorHintStatus === 'loading' && (
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4 -mt-4">
+                          AI Tutor is thinking...
+                        </p>
+                      )}
                       <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex-1">
                         <p className="text-[15px] font-medium text-slate-700 leading-relaxed">
                           {currentHints[hintIndex]?.message}
@@ -560,8 +608,14 @@ export default function App() {
             </div>
 
             {/* Floating Action Button (Clean / Elegant) */}
-            <button 
-              onClick={(e) => { e.stopPropagation(); setIsHintOpen(!isHintOpen); setBotAlert(false); }} 
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const opening = !isHintOpen;
+                setIsHintOpen(opening);
+                setBotAlert(false);
+                if (opening) handleOpenHintPanel();
+              }}
               className={`pointer-events-auto relative w-16 h-16 md:w-[72px] md:h-[72px] rounded-full flex items-center justify-center transition-all duration-500 ease-out z-10
                 ${isHintOpen
                   ? 'bg-white border border-slate-200 scale-90 shadow-sm hover:bg-slate-50'

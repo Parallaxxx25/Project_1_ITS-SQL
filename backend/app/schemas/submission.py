@@ -40,6 +40,24 @@ class GradingResult(BaseModel):
     hint_available: bool = False
 
 
+# ── Tutor hint request (client-graded flow — see App.jsx::handleSubmit,
+# which grades entirely in the browser via DuckDB-WASM and never calls
+# POST /submissions) ──
+class HintRequestIn(BaseModel):
+    # The tutor service's own problem id (lib/problems.js's hand-mapped
+    # tutorProblemId) — not this backend's own Problem.id, a separate,
+    # unrelated catalog the live client-side-graded flow doesn't read.
+    tutor_problem_id: int
+    query: str
+    is_correct: bool
+    attempt_number: int = 1
+
+
+class HintRequestOut(BaseModel):
+    hint_request_id: int | None = None
+    hint_available: bool = False
+
+
 # ── Assignment ──
 class AssignmentCreate(BaseModel):
     title: str
