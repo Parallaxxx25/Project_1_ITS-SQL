@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import kmitlLogo from '../assets/it.png'; 
-import { readEnrollmentMap, writeEnrollmentMap } from '../lib/enrollment-storage';
+import { listCourses, enrollInCourse } from '../lib/api';
 
 const INITIAL_COURSE_DATA = [
   { 
@@ -22,7 +22,8 @@ export default function Home({ onNavigate, user }) {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [accessCode, setAccessCode] = useState('');
   const [error, setError] = useState('');
-  const [enrolledList, setEnrolledList] = useState(() => readEnrollmentMap(user));
+  const [enrolledList, setEnrolledList] = useState({});
+  const [enrollmentLoading, setEnrollmentLoading] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
 
   const objectives = [
@@ -34,11 +35,34 @@ export default function Home({ onNavigate, user }) {
     { id: "06", desc: "Ensure data integrity through robust transaction management." }
   ];
 
+  // Enrollment lives in the backend (courses.enrollments), not localStorage —
+  // that's what makes it survive a logout, a different browser, another device.
+  // GET /api/courses returns exactly the courses this student is enrolled in.
   useEffect(() => {
-    setEnrolledList(readEnrollmentMap(user));
+    if (!user) {
+      setEnrolledList({});
+      return;
+    }
+    let cancelled = false;
+    setEnrollmentLoading(true);
+    listCourses()
+      .then((courses) => {
+        if (cancelled) return;
+        setEnrolledList(Object.fromEntries((courses || []).map((c) => [c.code, true])));
+      })
+      .catch(() => {
+        if (!cancelled) setEnrolledList({});
+      })
+      .finally(() => {
+        if (!cancelled) setEnrollmentLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [user]);
 
   const handleCourseClick = (course) => {
+    // Enrollment comes from the backend now, so a click landing before that
+    // request returns would wrongly re-prompt for the access code.
+    if (enrollmentLoading) return;
     if (enrolledList[course.id]) {
       onNavigate('coursetext');
     } else {
@@ -54,17 +78,22 @@ export default function Home({ onNavigate, user }) {
     setIsEnrolling(true);
     setError('');
 
-    // Client-only: validate the access code locally (no backend).
-    const validCodes = [selectedCourse.code, selectedCourse.access_code, 'ITSSQL2025'].filter(Boolean);
-    if (validCodes.includes((accessCode || '').trim())) {
-      const newList = { ...enrolledList, [selectedCourse.id]: true };
-      writeEnrollmentMap(user, newList);
-      setEnrolledList(newList);
-      setSelectedCourse(null);
-      onNavigate('coursetext');
-    } else {
-      setError('Invalid Access Code. Please try again.');
+    try {
+      // selectedCourse.id is the course *code* ("06070999"); the endpoint
+      // resolves either that or the numeric row id.
+      await enrollInCourse(selectedCourse.id, (accessCode || '').trim());
+    } catch (err) {
+      // Re-enrolling is a no-op from the student's point of view, not an error.
+      if (!/already enrolled/i.test(err?.message || '')) {
+        setError(err?.message || 'Invalid Access Code. Please try again.');
+        setIsEnrolling(false);
+        return;
+      }
     }
+
+    setEnrolledList((prev) => ({ ...prev, [selectedCourse.id]: true }));
+    setSelectedCourse(null);
+    onNavigate('coursetext');
     setIsEnrolling(false);
   };
 
@@ -231,13 +260,14 @@ export default function Home({ onNavigate, user }) {
                       {/* Action Button */}
                       <button 
                         onClick={() => handleCourseClick(course)}
-                        className={`w-full sm:w-auto px-8 py-4 rounded-xl font-black text-xs sm:text-sm uppercase tracking-[0.2em] transition-all duration-300 shadow-md flex items-center justify-center gap-3 whitespace-nowrap
+                        disabled={enrollmentLoading}
+                        className={`w-full sm:w-auto px-8 py-4 rounded-xl font-black text-xs sm:text-sm uppercase tracking-[0.2em] transition-all duration-300 shadow-md flex items-center justify-center gap-3 whitespace-nowrap disabled:opacity-60 disabled:cursor-wait
                           ${isEnrolled 
                             ? 'bg-[#0077b6] text-[#f8f9fa] hover:bg-[#023e8a] shadow-[0_8px_20px_rgba(0,119,182,0.3)] hover:-translate-y-1' 
                             : 'bg-gradient-to-r from-[#e85d04] to-[#f48c06] text-[#f8f9fa] shadow-[0_8px_20px_rgba(232,93,4,0.3)] hover:shadow-[0_12px_25px_rgba(232,93,4,0.4)] hover:-translate-y-1'
                           }`}
                       >
-                        {isEnrolled ? (
+                        {enrollmentLoading ? 'Loading…' : isEnrolled ? (
                           <>
                             <span className="w-2 h-2 rounded-full bg-[#f8f9fa] animate-pulse"></span>
                             Access Module

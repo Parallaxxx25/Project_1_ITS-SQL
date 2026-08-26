@@ -10,6 +10,10 @@ export default defineConfig({
   server: {
     port: 8080,
     open: true,
+    // Docker Desktop on Windows doesn't propagate native fs-change events
+    // across the bind mount, so chokidar's default watcher silently misses
+    // edits and keeps serving a stale bundle. Poll instead.
+    watch: { usePolling: true, interval: 300 },
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
     },

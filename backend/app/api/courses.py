@@ -145,16 +145,26 @@ async def delete_course(
 
 # ─── Enrollment ──────────────────────────────────────────────────────
 
-@router.post("/{course_id}/enroll")
+@router.post("/{course_ref}/enroll")
 async def enroll_in_course(
-    course_id: int,
+    course_ref: str,
     payload: CourseEnroll,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Enroll current user in a course using access code."""
-    result = await db.execute(select(Course).where(Course.id == course_id))
+    """
+    Enroll current user in a course using access code.
+
+    `course_ref` is the course code (what the frontend course cards carry,
+    e.g. "06070999") or the numeric row id. Code is tried first: course codes
+    here are all-digit strings, so an id-first lookup would silently resolve
+    "06070999" to row 6070999.
+    """
+    result = await db.execute(select(Course).where(Course.code == course_ref))
     course = result.scalar_one_or_none()
+    if course is None and course_ref.isdigit():
+        result = await db.execute(select(Course).where(Course.id == int(course_ref)))
+        course = result.scalar_one_or_none()
     if not course:
         raise HTTPException(404, "Course not found")
     if course.access_code != payload.access_code:
@@ -164,7 +174,7 @@ async def enroll_in_course(
     existing = await db.execute(
         select(Enrollment).where(
             Enrollment.user_id == user.id,
-            Enrollment.course_id == course_id,
+            Enrollment.course_id == course.id,
         )
     )
     if existing.scalar_one_or_none():
@@ -172,12 +182,12 @@ async def enroll_in_course(
 
     enrollment = Enrollment(
         user_id=user.id,
-        course_id=course_id,
+        course_id=course.id,
         role="student",
     )
     db.add(enrollment)
     await db.commit()
-    return {"message": "Enrolled successfully", "course_id": course_id}
+    return {"message": "Enrolled successfully", "course_id": course.id}
 
 
 @router.get("/{course_id}/students")

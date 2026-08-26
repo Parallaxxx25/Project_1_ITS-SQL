@@ -54,6 +54,13 @@ services:
       POSTGRES_URL_EXEC: postgresql://tutor:tutor_pass@tutor-postgres:5432/tutor_db
       REDIS_URL: redis://tutor-redis:6379/0
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      # LangSmith tracing. tutor/.env is .dockerignored, so these only
+      # reach the container by being passed here — put them in a .env
+      # next to this compose file.
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGCHAIN_TRACING: ${LANGCHAIN_TRACING:-true}
+      LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-intelligent-tutor}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
       SLIDE_RAG_ENABLED: "false" # skip the slide-material ONNX download for a fast local trial
       DEFAULT_PIPELINE_MODE: llm
       DEBUG: "false"
@@ -75,6 +82,11 @@ services:
   partner-api:
     build: ./backend
     environment:
+      # Pinned so JWTs survive a container restart — unpinned, config.py
+      # falls back to a fresh random key per process start, silently
+      # invalidating every logged-in session (and breaking anything
+      # authenticated, like the tutor hint passthrough) on every restart.
+      SECRET_KEY: 4d2d818c3a64ccfbf2f2c9ffab354394814cb71ff3fb9717454abb42fac85228
       DATABASE_URL: sqlite+aiosqlite:///./its_sql.db
       TUTOR_SERVICE_URL: http://tutor-api:8000
       # Empty = auth disabled between the two services, same local-dev
@@ -84,6 +96,12 @@ services:
       FRONTEND_URL: http://localhost:8080
     ports:
       - "8000:8000"
+    # Live-mount source + --reload so backend code edits apply without a
+    # rebuild. its_sql.db lives in here too, so it now persists across
+    # restarts instead of resetting to whatever was baked into the image.
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       tutor-api:
         condition: service_healthy
@@ -94,6 +112,12 @@ services:
       VITE_API_TARGET: http://partner-api:8000
     ports:
       - "8080:8080"
+    # Live-mount source so Vite's own HMR picks up edits without a rebuild.
+    # node_modules stays an anonymous volume — the container's install, not
+    # the host's — so it isn't shadowed by (or clobbers) whatever's on disk.
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - partner-api
 

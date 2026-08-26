@@ -39,10 +39,10 @@ export default function FeedbackOverlay({ isVisible }) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-white/90 ">
       <div className="animate-in zoom-in-95 fade-in duration-300">
         <div className="w-96 h-96 flex items-center justify-center">
-          <img 
-            src={randomGif} 
-            alt="Capoo Feedback" 
-            className="w-full h-full object-contain drop-shadow-xl" 
+          <img
+            src={randomGif}
+            alt="Capoo Feedback"
+            className="w-full h-full object-contain drop-shadow-xl"
           />
         </div>
       </div>

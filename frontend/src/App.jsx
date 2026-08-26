@@ -193,6 +193,10 @@ export default function App() {
   const [submissions, setSubmissions] = useState([]);
   const [moduleSubs, setModuleSubs] = useState([]);
   const [overlay, setOverlay] = useState({ visible: false, status: 'loading', message: '' });
+  // Query-execution errors (bad SQL, engine timeout, …) render as an inline
+  // banner in the workspace instead of the pass/fail gif overlay — students
+  // need to actually read these, not have them flash by.
+  const [submitError, setSubmitError] = useState(null);
   const [filteredProblemsList, setFilteredProblemsList] = useState([]);
   const [problemStatuses, setProblemStatuses] = useState([]);
   
@@ -268,6 +272,7 @@ export default function App() {
         setProblemData(target);
         refreshCurrentSubmissions(currentProblem);
         localStorage.setItem(stepKey, currentProblem.toString());
+        setSubmitError(null);
       }
     }
   }, [currentProblem, filteredProblemsList, currentPage, getWorkspaceKeys, refreshCurrentSubmissions]);
@@ -285,9 +290,9 @@ export default function App() {
   const handleSubmit = async (code, language) => {
     if(!problemData || problemData.title === 'NO CONTENT FOUND') return;
     resetTimer();
+    setSubmitError(null);
     if (dbError) {
-      setOverlay({ visible: true, status: 'error', message: dbError });
-      setTimeout(() => setOverlay({ visible: false }), 2500);
+      setSubmitError(dbError);
       return;
     }
     setOverlay({ visible: true, status: 'loading', message: 'Validating Query...' });
@@ -297,11 +302,23 @@ export default function App() {
       const result = await new Verifier().verify(code, problemData.goldenQuery);
       const durationMs = Math.round(performance.now() - verifyStart);
 
-      // Surface the real engine error (syntax / unknown table / timeout) instead
-      // of silently marking "failed" with a generic message.
+      // Surface the real engine error (syntax / unknown table / timeout) as an
+      // inline workspace banner instead of silently marking "failed" — this is
+      // a broken submission, not a graded wrong answer. It still deserves a
+      // hint though: HintEngine has a dedicated syntax-error branch, and the
+      // tutor service can grade+hint on it same as any other failed attempt.
       if (result.error) {
-        setOverlay({ visible: true, status: 'error', message: result.error });
-        setTimeout(() => setOverlay({ visible: false }), 2800);
+        setOverlay({ visible: false });
+        setSubmitError(result.error);
+
+        setTutorHintStatus('idle');
+        const hints = new HintEngine().generateHints(cleanCode, result, problemData);
+        setCurrentHints(hints); setHintIndex(0); setBotAlert(true);
+
+        const { submissionKey: errSubmissionKey } = getWorkspaceKeys();
+        const errExistingSubs = JSON.parse(localStorage.getItem(errSubmissionKey)) || {};
+        const errPriorAttempts = errExistingSubs[currentProblem]?.attempts?.length || 0;
+        lastAttemptRef.current = { query: code, attemptNumber: errPriorAttempts + 1, isCorrect: false };
         return;
       }
       const hasSemicolon = cleanCode.trim().endsWith(';');
@@ -380,8 +397,8 @@ export default function App() {
         }
       }, 1500);
     } catch (err) {
-      setOverlay({ visible: true, status: 'error', message: err?.message || 'เกิดข้อผิดพลาดในการตรวจคำตอบ' });
-      setTimeout(() => setOverlay({ visible: false }), 2500);
+      setOverlay({ visible: false });
+      setSubmitError(err?.message || 'เกิดข้อผิดพลาดในการตรวจคำตอบ');
     }
   };
 
@@ -472,7 +489,7 @@ export default function App() {
         doesn't tuck under the navbar; other pages self-manage their own top padding.
       */}
       <main className={`relative z-10 min-h-[calc(100vh-80px)] pb-20 ${isWorkspace || isTeachPage ? 'pt-28 md:pt-32' : 'pt-12 md:pt-16'} ${isFullWidthPage ? 'w-full' : 'container mx-auto px-4 sm:px-6'}`}>
-        {currentPage === 'home' && <Home onNavigate={navigateTo} onShowLogin={() => setShowLoginModal(true)} isLoggedIn={isLoggedIn} />}
+        {currentPage === 'home' && <Home onNavigate={navigateTo} onShowLogin={() => setShowLoginModal(true)} isLoggedIn={isLoggedIn} user={user} />}
         {isLoggedIn ? (
           <>
             {currentPage === 'coursetext' && <CourseText onNavigate={navigateTo} user={user} />}
@@ -510,7 +527,7 @@ export default function App() {
                   <div className="lg:col-span-2 relative z-20 flex flex-col gap-6">
                     <Tabs selectedTab={selectedTab} onTabChange={setSelectedTab} />
                     {selectedTab === 'description' ? (
-                      <RightPanel problemData={problemData} currentStep={currentProblem} onSubmit={handleSubmit} isExamLocked={workspaceMode === 'EXAM' && problemStatuses[currentProblem - 1] === 'passed'} />
+                      <RightPanel problemData={problemData} currentStep={currentProblem} onSubmit={handleSubmit} isExamLocked={workspaceMode === 'EXAM' && problemStatuses[currentProblem - 1] === 'passed'} submitError={submitError} />
                     ) : (
                       <MySubmissions submissions={submissions} moduleSubs={moduleSubs} problemData={problemData} />
                     )}
@@ -520,7 +537,7 @@ export default function App() {
             )}
           </>
         ) : (
-          currentPage !== 'home' && <Home onNavigate={navigateTo} onShowLogin={() => setShowLoginModal(true)} isLoggedIn={isLoggedIn} />
+          currentPage !== 'home' && <Home onNavigate={navigateTo} onShowLogin={() => setShowLoginModal(true)} isLoggedIn={isLoggedIn} user={user} />
         )}
       </main>
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AnnouncementsBanner from './AnnouncementsBanner';
 import StudentContent from './StudentContent';
-import { readEnrollmentMap } from '../lib/enrollment-storage';
+import { listCourses } from '../lib/api';
 
 export default function Dashboard({ onNavigate, user }) {
   const [enrolledCourses, setEnrolledCourses] = useState([]);
@@ -9,10 +9,13 @@ export default function Dashboard({ onNavigate, user }) {
 
   useEffect(() => {
     if (!user) return;
+    let cancelled = false;
 
-    const enrolledMap = readEnrollmentMap(user);
+    // Same backend source of truth as Home — see the note there.
+    listCourses().then((courses) => {
+      if (cancelled) return;
 
-    const enrolledIds = Object.keys(enrolledMap).filter((k) => enrolledMap[k]);
+    const enrolledIds = (courses || []).map((c) => c.code);
     const allCourses = [
       { id: '06070999', name: 'Database Concept System', theme: 'from-blue-600 to-indigo-700' },
     ];
@@ -44,8 +47,15 @@ export default function Dashboard({ onNavigate, user }) {
         };
       });
 
-    setHasEnrollment(coursesData.length > 0);
-    setEnrolledCourses(coursesData);
+      setHasEnrollment(coursesData.length > 0);
+      setEnrolledCourses(coursesData);
+    }).catch(() => {
+      if (cancelled) return;
+      setHasEnrollment(false);
+      setEnrolledCourses([]);
+    });
+
+    return () => { cancelled = true; };
   }, [user]);
 
   const deadlines = [
