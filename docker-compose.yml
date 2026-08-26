@@ -1,0 +1,101 @@
+# Local trial stack: this platform's own backend/frontend + the tutor
+# grading/hint service (github.com/Parallaxxx25/intelligent-tutor, pulled
+# in as the `tutor/` git submodule — run `git submodule update --init`
+# after cloning if that directory is empty).
+#
+# `docker compose up --build` and open http://localhost:8080.
+#
+# GOOGLE_API_KEY is optional here: without it, tutor-api still grades and
+# mints hint tokens, but hints degrade to the rule-based fallback instead
+# of a real Gemini call (see intelligent-tutor's CLAUDE.md — the pipeline
+# is designed to degrade, not fail, when the LLM is unavailable). Put a
+# real key in a `.env` file next to this compose file to get real hints:
+#   GOOGLE_API_KEY=...
+#
+# ponytail: POSTGRES_URL_EXEC below reuses the main `tutor` role instead
+# of a read-only `student_ro` role — fine for a local trial where nobody's
+# grading real students. Before any real deploy, provision the role with
+# tutor/scripts/provision_student_ro.sql and point POSTGRES_URL_EXEC at it
+# (see docs/adr's D2 hardening step in intelligent-tutor's 14-days-plan.md).
+
+services:
+  tutor-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tutor
+      POSTGRES_PASSWORD: tutor_pass
+      POSTGRES_DB: tutor_db
+    # No host port mapping — only tutor-api talks to this, over the
+    # compose network by service name. Debug access: `docker compose exec
+    # tutor-postgres psql -U tutor -d tutor_db`. (Also sidesteps colliding
+    # with intelligent-tutor's own standalone docker-compose.yml, which
+    # maps this same Postgres image to host port 5435 for local dev.)
+    volumes:
+      - tutor_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tutor -d tutor_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tutor-redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tutor-api:
+    build: ./tutor
+    environment:
+      POSTGRES_URL: postgresql+asyncpg://tutor:tutor_pass@tutor-postgres:5432/tutor_db
+      POSTGRES_URL_SYNC: postgresql://tutor:tutor_pass@tutor-postgres:5432/tutor_db
+      POSTGRES_URL_EXEC: postgresql://tutor:tutor_pass@tutor-postgres:5432/tutor_db
+      REDIS_URL: redis://tutor-redis:6379/0
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      SLIDE_RAG_ENABLED: "false" # skip the slide-material ONNX download for a fast local trial
+      DEFAULT_PIPELINE_MODE: llm
+      DEBUG: "false"
+      ENV: development
+    depends_on:
+      tutor-postgres:
+        condition: service_healthy
+      tutor-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Not exposed to the host on purpose — only partner-api talks to this,
+    # over the compose network by service name.
+
+  partner-api:
+    build: ./backend
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:///./its_sql.db
+      TUTOR_SERVICE_URL: http://tutor-api:8000
+      # Empty = auth disabled between the two services, same local-dev
+      # convention as intelligent-tutor's own SERVICE_KEY. Set both sides
+      # to the same value before this stack is reachable from outside.
+      TUTOR_SERVICE_KEY: ""
+      FRONTEND_URL: http://localhost:8080
+    ports:
+      - "8000:8000"
+    depends_on:
+      tutor-api:
+        condition: service_healthy
+
+  partner-web:
+    build: ./frontend
+    environment:
+      VITE_API_TARGET: http://partner-api:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      - partner-api
+
+volumes:
+  tutor_pgdata:
