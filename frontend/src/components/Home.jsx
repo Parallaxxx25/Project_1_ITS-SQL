@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import kmitlLogo from '../assets/it.png'; 
+import { readEnrollmentMap, writeEnrollmentMap } from '../lib/enrollment-storage';
 
 const INITIAL_COURSE_DATA = [
   { 
@@ -21,7 +22,7 @@ export default function Home({ onNavigate, user }) {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [accessCode, setAccessCode] = useState('');
   const [error, setError] = useState('');
-  const [enrolledList, setEnrolledList] = useState({});
+  const [enrolledList, setEnrolledList] = useState(() => readEnrollmentMap(user));
   const [isEnrolling, setIsEnrolling] = useState(false);
 
   const objectives = [
@@ -34,12 +35,7 @@ export default function Home({ onNavigate, user }) {
   ];
 
   useEffect(() => {
-    if (user?.id) {
-      const saved = localStorage.getItem(`user_enrolled_${user.id}`);
-      if (saved) {
-        setEnrolledList(JSON.parse(saved));
-      }
-    }
+    setEnrolledList(readEnrollmentMap(user));
   }, [user]);
 
   const handleCourseClick = (course) => {
@@ -62,7 +58,7 @@ export default function Home({ onNavigate, user }) {
     const validCodes = [selectedCourse.code, selectedCourse.access_code, 'ITSSQL2025'].filter(Boolean);
     if (validCodes.includes((accessCode || '').trim())) {
       const newList = { ...enrolledList, [selectedCourse.id]: true };
-      if (user?.id) localStorage.setItem(`user_enrolled_${user.id}`, JSON.stringify(newList));
+      writeEnrollmentMap(user, newList);
       setEnrolledList(newList);
       setSelectedCourse(null);
       onNavigate('coursetext');

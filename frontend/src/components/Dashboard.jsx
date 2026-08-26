@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AnnouncementsBanner from './AnnouncementsBanner';
 import StudentContent from './StudentContent';
+import { readEnrollmentMap } from '../lib/enrollment-storage';
 
 export default function Dashboard({ onNavigate, user }) {
   const [enrolledCourses, setEnrolledCourses] = useState([]);
@@ -9,14 +10,7 @@ export default function Dashboard({ onNavigate, user }) {
   useEffect(() => {
     if (!user) return;
 
-    const enrolledData = localStorage.getItem(`user_enrolled_${user.id}`);
-    let enrolledMap = {};
-
-    try {
-      enrolledMap = enrolledData ? JSON.parse(enrolledData) : {};
-    } catch {
-      enrolledMap = {};
-    }
+    const enrolledMap = readEnrollmentMap(user);
 
     const enrolledIds = Object.keys(enrolledMap).filter((k) => enrolledMap[k]);
     const allCourses = [
