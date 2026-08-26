@@ -145,7 +145,7 @@ RAW_PROBLEMS = [
      "goldenQuery": "SELECT product_id, product_name FROM products WHERE product_name LIKE '%original%';", "starterCode": "SELECT "},
     {"id": 23, "type": "COURSE", "moduleId": "03", "title": "AND Condition", "difficulty": "beginner",
      "description": "จงเขียน SQL Statement แสดงชื่อจริง รัฐ รหัสไปรษณีย์ลูกค้า ที่รัฐคือ 'CA' และรหัสไปรษณีย์มากกว่า 95000", "table": "customers",
-     "goldenQuery": "SELECT first_name, state, zip_code FROM customers WHERE state = 'CA' AND zip_code > 95000;", "starterCode": "SELECT "},
+     "goldenQuery": "SELECT first_name, state, zip_code FROM customers WHERE state = 'CA' AND zip_code > '95000';", "starterCode": "SELECT "},
     {"id": 24, "type": "COURSE", "moduleId": "03", "title": "OR Condition", "difficulty": "beginner",
      "description": "จงเขียน SQL Statement แสดงชื่อจริง และชื่อรัฐของลูกค้า ที่อยู่รัฐ 'TX' หรือ 'NY'", "table": "customers",
      "goldenQuery": "SELECT first_name, state FROM customers WHERE state = 'TX' OR state = 'NY';", "starterCode": "SELECT "},

@@ -78,7 +78,6 @@ ITS-SQL/
 │   │   │   ├── firebase.js      #   Firebase config (legacy, for client ID)
 │   │   │   ├── db-manager.js    #   DuckDB-WASM (local practice only)
 │   │   │   ├── problems.js      #   Problem definitions (81 problems)
-│   │   │   ├── hint-engine.js   #   Client-side hint generation
 │   │   │   └── verifier.js      #   Client-side query verification
 │   │   ├── styles/
 │   │   ├── App.jsx

@@ -14,7 +14,6 @@ import AdminPanel from './components/AdminPanel';
 import { dbManager } from './lib/db-manager';
 import { getAllProblems } from './lib/problems';
 import { Verifier, stripSqlComments } from './lib/verifier';
-import { HintEngine } from './lib/hint-engine';
 import { requestClientHint, fetchClientHint } from './lib/api';
 import { logout as authApiLogout } from './lib/auth-api';
  
@@ -200,16 +199,24 @@ export default function App() {
   const [filteredProblemsList, setFilteredProblemsList] = useState([]);
   const [problemStatuses, setProblemStatuses] = useState([]);
   
-  const [currentHints, setCurrentHints] = useState([]);
-  const [hintIndex, setHintIndex] = useState(0);
+  // Hints come from the tutor service only — see requestTutorHint/handleOpenHintPanel
+  // below. currentHint is the single most recent hint text (the tutor returns one
+  // hint per attempt, escalating in depth on resubmission — there's nothing to page
+  // through within one attempt).
+  const [currentHint, setCurrentHint] = useState(null); // { hint_text, hint_level, source } | null
+  const [hasAttempted, setHasAttempted] = useState(false); // this problem has a failed/errored submission to hint on
   const [isHintOpen, setIsHintOpen] = useState(false);
   const [botAlert, setBotAlert] = useState(false);
   const hintRef = useRef(null);
-  // Tutor AI hint (see App.jsx::handleSubmit + the bot-button onClick below)
-  // is fetched on-demand — only when the student opens this panel, not on
-  // every failed submit, to keep it to one Gemini call per attempt.
-  // 'idle' | 'loading' | 'done' | 'unavailable'
+  // Split in two calls, matching the tutor's own cost split: /grade
+  // (deterministic, no LLM) fires right after a failed submit so the bot-dot
+  // reflects real hint availability; /hint (the Gemini call) fires only when
+  // the panel opens, so a student who never opens it never costs a Gemini call.
+  // 'idle' (nothing fetched yet) | 'loading' | 'done' | 'unavailable' (service
+  // unreachable at grade- or hint-time — distinct from "no attempt yet", which
+  // is read from hasAttempted, and "no tutor mapping", read from problemData).
   const [tutorHintStatus, setTutorHintStatus] = useState('idle');
+  const hintRequestIdRef = useRef(null);
   const lastAttemptRef = useRef({ query: '', attemptNumber: 0 });
 
   useEffect(() => { localStorage.setItem('selectedTab', selectedTab); }, [selectedTab]);
@@ -273,6 +280,12 @@ export default function App() {
         refreshCurrentSubmissions(currentProblem);
         localStorage.setItem(stepKey, currentProblem.toString());
         setSubmitError(null);
+        // Leaving this problem invalidates any hint context for it.
+        setHasAttempted(false);
+        setCurrentHint(null);
+        setTutorHintStatus('idle');
+        setBotAlert(false);
+        hintRequestIdRef.current = null;
       }
     }
   }, [currentProblem, filteredProblemsList, currentPage, getWorkspaceKeys, refreshCurrentSubmissions]);
@@ -305,20 +318,21 @@ export default function App() {
       // Surface the real engine error (syntax / unknown table / timeout) as an
       // inline workspace banner instead of silently marking "failed" — this is
       // a broken submission, not a graded wrong answer. It still deserves a
-      // hint though: HintEngine has a dedicated syntax-error branch, and the
-      // tutor service can grade+hint on it same as any other failed attempt.
+      // hint though: the tutor service can grade+hint on it same as any
+      // other failed attempt.
       if (result.error) {
         setOverlay({ visible: false });
         setSubmitError(result.error);
-
-        setTutorHintStatus('idle');
-        const hints = new HintEngine().generateHints(cleanCode, result, problemData);
-        setCurrentHints(hints); setHintIndex(0); setBotAlert(true);
 
         const { submissionKey: errSubmissionKey } = getWorkspaceKeys();
         const errExistingSubs = JSON.parse(localStorage.getItem(errSubmissionKey)) || {};
         const errPriorAttempts = errExistingSubs[currentProblem]?.attempts?.length || 0;
         lastAttemptRef.current = { query: code, attemptNumber: errPriorAttempts + 1, isCorrect: false };
+
+        setHasAttempted(true);
+        setCurrentHint(null);
+        setTutorHintStatus('idle');
+        requestTutorHint(code, errPriorAttempts + 1, false);
         return;
       }
       const hasSemicolon = cleanCode.trim().endsWith(';');
@@ -368,14 +382,23 @@ export default function App() {
         }
       }
 
-      let hints = [];
       if (!isPassed && mode !== 'EXAM') {
+        setHasAttempted(true);
+        setCurrentHint(null);
         // Reset — a fresh failed attempt means the previous attempt's
         // fetched (or unavailable) tutor hint no longer applies.
         setTutorHintStatus('idle');
-        hints = new HintEngine().generateHints(cleanCode, result, problemData);
-        if (result.success && !hasSemicolon) hints = [{ message: "Syntax Error: SQL queries must end with a semicolon (;)." }];
-        setCurrentHints(hints); setHintIndex(0); setBotAlert(true); 
+        hintRequestIdRef.current = null;
+        if (result.success && !hasSemicolon) {
+          // Missing-semicolon is a client-grading rule the tutor never sees
+          // (it never receives a query that "succeeded" client-side but was
+          // rejected for this) — shown locally, no tutor round trip.
+          setCurrentHint({ hint_text: "Syntax Error: SQL queries must end with a semicolon (;).", hint_level: null, source: 'local' });
+          setTutorHintStatus('done');
+          setBotAlert(true);
+        } else {
+          requestTutorHint(code, priorAttempts.length + 1, isPassed);
+        }
       } else { setBotAlert(false); }
 
       refreshCurrentSubmissions(currentProblem);
@@ -402,35 +425,77 @@ export default function App() {
     }
   };
 
-  // Fetches the tutor AI hint on-demand — called only when the student
-  // opens the hint panel (not on every failed submit), so the tutor
-  // service's Gemini call fires at most once per attempt. The local
-  // HintEngine hints already showing stay as the offline fallback if this
-  // never resolves.
-  const handleOpenHintPanel = () => {
+  // Called right after a failed/errored submit — the deterministic /grade
+  // call only (no LLM), just to learn whether a hint is mintable and, if so,
+  // stash the token for handleOpenHintPanel to redeem later. Never shows a
+  // loading state: this is a ~50ms round trip, not the Gemini call.
+  const requestTutorHint = useCallback(async (query, attemptNumber, isCorrect) => {
     const tutorProblemId = problemData?.tutorProblemId;
-    if (!tutorProblemId || tutorHintStatus !== 'idle') return;
-    const { query, attemptNumber, isCorrect } = lastAttemptRef.current;
-    if (!query || isCorrect) return;
+    hintRequestIdRef.current = null;
+    if (!tutorProblemId) { setBotAlert(false); return; } // no tutor-side mapping for this problem (e.g. instructor-authored)
+    try {
+      const req = await requestClientHint(tutorProblemId, query, isCorrect, attemptNumber);
+      if (req.hint_available && req.hint_request_id) {
+        hintRequestIdRef.current = req.hint_request_id;
+        setBotAlert(true);
+      } else {
+        setBotAlert(false);
+      }
+    } catch {
+      // Tutor service unreachable at grade time — go straight to the
+      // Retry state so opening the panel doesn't spend a second failing
+      // round trip finding this out.
+      setBotAlert(true);
+      setTutorHintStatus('unavailable');
+    }
+  }, [problemData]);
 
+  // Fetches the tutor AI hint (the Gemini call) — called only when the
+  // student opens the hint panel, so it fires at most once per attempt.
+  const handleOpenHintPanel = useCallback(() => {
+    if (!problemData?.tutorProblemId || !hasAttempted) return;
+    if (tutorHintStatus === 'loading' || tutorHintStatus === 'done') return;
+    if (!hintRequestIdRef.current) {
+      setTutorHintStatus('unavailable');
+      return;
+    }
     setTutorHintStatus('loading');
     (async () => {
       try {
-        const req = await requestClientHint(tutorProblemId, query, isCorrect, attemptNumber);
-        if (!req.hint_available || !req.hint_request_id) {
-          setTutorHintStatus('unavailable');
-          return;
-        }
-        const tutorHint = await fetchClientHint(req.hint_request_id);
-        setCurrentHints((prev) => [{ message: tutorHint.hint_text }, ...prev]);
-        setHintIndex(0);
+        const tutorHint = await fetchClientHint(hintRequestIdRef.current);
+        setCurrentHint(tutorHint);
         setTutorHintStatus('done');
       } catch {
-        // Tutor service unreachable — the local hints already shown cover this.
         setTutorHintStatus('unavailable');
       }
     })();
-  };
+  }, [tutorHintStatus, hasAttempted, problemData]);
+
+  // Retry from the panel's "unavailable" state — re-runs whichever half of
+  // the flow didn't complete (grade, if the token never landed; hint,
+  // otherwise), rather than assuming which one failed.
+  const retryTutorHint = useCallback(() => {
+    setTutorHintStatus('idle');
+    (async () => {
+      if (!hintRequestIdRef.current) {
+        const { query, attemptNumber, isCorrect } = lastAttemptRef.current;
+        if (!query) { setTutorHintStatus('unavailable'); return; }
+        await requestTutorHint(query, attemptNumber, isCorrect);
+      }
+      if (hintRequestIdRef.current) {
+        setTutorHintStatus('loading');
+        try {
+          const tutorHint = await fetchClientHint(hintRequestIdRef.current);
+          setCurrentHint(tutorHint);
+          setTutorHintStatus('done');
+        } catch {
+          setTutorHintStatus('unavailable');
+        }
+      } else {
+        setTutorHintStatus('unavailable');
+      }
+    })();
+  }, [requestTutorHint]);
 
   const handleStepChange = useCallback((newStep) => {
     const mode = localStorage.getItem('workspaceMode') || 'COURSE';
@@ -573,51 +638,63 @@ export default function App() {
                 
                 {/* Panel Body */}
                 <div className="p-8 bg-[#FAFAFA] flex flex-col min-h-[260px]">
-                  {currentHints.length > 0 ? (
+                  {!problemData?.tutorProblemId ? (
+                    <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-4">
+                      <div className="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
+                        <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                      </div>
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 text-center">AI hints aren't available<br/>for this problem</p>
+                    </div>
+                  ) : !hasAttempted ? (
+                    <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-4">
+                      <div className="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
+                        <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                      </div>
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Submit a query to get a hint</p>
+                    </div>
+                  ) : tutorHintStatus === 'loading' ? (
+                    <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-4">
+                      <div className="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center animate-pulse">
+                        <svg className="w-6 h-6 text-[#FF9900]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                      </div>
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">AI Tutor is thinking...</p>
+                    </div>
+                  ) : tutorHintStatus === 'unavailable' ? (
+                    <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-4">
+                      <div className="w-16 h-16 rounded-full bg-red-50 border border-red-100 flex items-center justify-center">
+                        <svg className="w-6 h-6 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"></path></svg>
+                      </div>
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 text-center">Couldn't reach the AI Tutor</p>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); retryTutorHint(); }}
+                        className="bg-[#03045e] text-white px-6 py-2.5 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-[#020344] transition-all shadow-md"
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  ) : currentHint ? (
                     <div className="flex-1 flex flex-col animate-in fade-in duration-300">
                       <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#03045e]/5 border border-[#03045e]/10 mb-6 self-start">
                         <span className="w-1.5 h-1.5 rounded-full bg-[#FF9900] animate-pulse"></span>
                         <span className="text-[#03045e] text-[10px] font-bold uppercase tracking-widest">
-                          Insight {hintIndex + 1} of {currentHints.length}
+                          {currentHint.hint_level ? `Hint ${currentHint.hint_level} of 4` : 'Hint'}
                         </span>
                       </div>
-                      {tutorHintStatus === 'loading' && (
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4 -mt-4">
-                          AI Tutor is thinking...
-                        </p>
-                      )}
                       <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex-1">
                         <p className="text-[15px] font-medium text-slate-700 leading-relaxed">
-                          {currentHints[hintIndex]?.message}
+                          {currentHint.hint_text}
                         </p>
                       </div>
+                      {currentHint.source !== 'local' && (
+                        <p className="text-[10px] font-medium text-slate-400 mt-4 text-center">Submit again for a deeper hint.</p>
+                      )}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-4">
                       <div className="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
                         <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                       </div>
-                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Waiting for query...</p>
-                    </div>
-                  )}
-                  
-                  {/* Panel Controls */}
-                  {currentHints.length > 1 && (
-                    <div className="flex gap-4 mt-8 pt-6 border-t border-slate-100">
-                      <button 
-                        disabled={hintIndex === 0}
-                        onClick={(e) => { e.stopPropagation(); setHintIndex(prev => Math.max(0, prev - 1)); }} 
-                        className="flex-1 bg-white border border-slate-200 text-[#03045e] py-3.5 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                      >
-                        Previous
-                      </button>
-                      <button 
-                        disabled={hintIndex === currentHints.length - 1}
-                        onClick={(e) => { e.stopPropagation(); setHintIndex(prev => Math.min(currentHints.length - 1, prev + 1)); }} 
-                        className="flex-1 bg-[#03045e] text-white border border-[#03045e] py-3.5 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-[#020344] disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md"
-                      >
-                        Next
-                      </button>
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Submit a query to get a hint</p>
                     </div>
                   )}
                 </div>
