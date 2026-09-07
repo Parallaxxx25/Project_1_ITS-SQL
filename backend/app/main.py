@@ -21,7 +21,6 @@ logger = logging.getLogger("app")
 
 # Import routers
 from app.api.auth import router as auth_router
-from app.api.accounts import router as accounts_router
 from app.api.courses import router as courses_router
 from app.api.problems import router as problems_router
 from app.api.submissions import router as submissions_router
@@ -97,7 +96,6 @@ async def request_context(request: Request, call_next):
 
 # ── Routers ──────────────────────────────────────────────────────────
 app.include_router(auth_router, prefix="/api")
-app.include_router(accounts_router, prefix="/api")   # → /api/signup, /api/login
 app.include_router(courses_router, prefix="/api")
 app.include_router(problems_router, prefix="/api")
 app.include_router(submissions_router, prefix="/api")

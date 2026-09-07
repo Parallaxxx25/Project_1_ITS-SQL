@@ -15,4 +15,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username);
 
 -- NOTE: the live app manages this table via SQLAlchemy and adds extra columns
 -- (email, name, role, modules, is_active, …) used by the wider platform. The
--- columns above are the auth-critical set required by /api/signup + /api/login.
+-- columns above are the auth-critical set used by /api/auth/register +
+-- /api/auth/login.
