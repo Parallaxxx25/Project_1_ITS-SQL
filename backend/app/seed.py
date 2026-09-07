@@ -14,6 +14,7 @@ Usage:
 import asyncio
 import os
 import re
+import secrets
 from pathlib import Path
 
 from sqlalchemy import select
@@ -28,32 +29,40 @@ from app.models.submission import Submission, SubmissionLog
 
 # ═══════════════════════════════════════════════════════════════════════
 # INSTRUCTOR ACCOUNTS — the ONLY pre-set instructors (seeded on startup).
-# Students self sign-up (role=student); these 3 are role=instructor.
+# Students self sign-up (role=student); these are role=instructor.
+# No passwords here: one is generated per account at creation and printed
+# once. Set SEED_INSTRUCTOR_PW to pin it (useful on hosts with no
+# persistent disk, where accounts re-seed on every boot).
 # ═══════════════════════════════════════════════════════════════════════
 INSTRUCTOR_SEED = [
-    {"username": "aj001",      "password": "aj001",    "name": "Instructor aj001",  "email": "aj001@kmitl.ac.th"},
-    {"username": "it66070126", "password": "NLKctw25", "name": "นายพชร พรอโนทัย",     "email": "it66070126@kmitl.ac.th"},
-    {"username": "it66070066", "password": "LGHuuh18", "name": "นายณัฐวีร์ เเนกำพล",  "email": "it66070066@kmitl.ac.th"},
+    {"username": "aj001",      "name": "Instructor aj001",  "email": "aj001@kmitl.ac.th"},
+    {"username": "it66070126", "name": "นายพชร พรอโนทัย",     "email": "it66070126@kmitl.ac.th"},
+    {"username": "it66070066", "name": "นายณัฐวีร์ เเนกำพล",  "email": "it66070066@kmitl.ac.th"},
 ]
 
 
 async def ensure_instructors():
-    """Idempotently seed the 3 fixed instructor accounts. Safe on every startup:
-    creates missing ones and repairs role/name/password/active on existing so the
-    known credentials always work."""
+    """Idempotently seed the fixed instructor accounts. Safe on every startup:
+    creates missing ones and repairs role/active on existing rows. Does NOT
+    touch the password or name of an existing account — an instructor who
+    changes their password keeps it across restarts."""
     from app.services.auth_service import hash_password
     async with AsyncSessionLocal() as db:
         for u in INSTRUCTOR_SEED:
             existing = await db.scalar(select(User).where(User.username == u["username"]))
             if existing:
-                existing.role = Role.INSTRUCTOR
-                existing.is_active = True
-                existing.name = u["name"]
-                existing.password_hash = hash_password(u["password"])
+                if existing.role != Role.INSTRUCTOR or not existing.is_active:
+                    existing.role = Role.INSTRUCTOR
+                    existing.is_active = True
             else:
+                pw = os.getenv("SEED_INSTRUCTOR_PW") or secrets.token_urlsafe(9)
+                print(f"[seed] created instructor {u['username']} — temporary password: {pw}")
+                # ponytail: password is only ever shown here, at creation. There is
+                # no reset endpoint — reset a forgotten one via hash_password() in a
+                # one-off script.
                 db.add(User(
                     username=u["username"],
-                    password_hash=hash_password(u["password"]),
+                    password_hash=hash_password(pw),
                     email=u["email"],
                     name=u["name"],
                     role=Role.INSTRUCTOR,
