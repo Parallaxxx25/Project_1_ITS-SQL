@@ -65,6 +65,10 @@ export default function App() {
         return;
       }
     }
+    if (page === 'admin' && user?.role !== 'admin') {
+      console.warn('Access denied: admin only');
+      return;
+    }
     
     setCurrentPage(page);
     if (!isPopstateRef.current) {
@@ -513,6 +517,7 @@ export default function App() {
   const isTeachPage = ['instructor', 'coursemanage', 'problems'].includes(currentPage);
   // TA is bundled with instructor — both count as teaching staff.
   const canTeach = !!user && ['instructor', 'ta'].includes(user.role);
+  const isAdmin = user?.role === 'admin';
 
   // Locked steps (EXAM only) — memoized to keep StepIndicator from re-rendering needlessly
   const lockedSteps = useMemo(
@@ -560,7 +565,7 @@ export default function App() {
             {currentPage === 'coursetext' && <CourseText onNavigate={navigateTo} user={user} />}
             {/* instructor / coursemanage / problems all resolve to the unified console */}
             {(currentPage === 'instructor' || currentPage === 'coursemanage' || currentPage === 'problems') && canTeach && <InstructorDashboard onNavigate={navigateTo} user={user} />}
-            {currentPage === 'admin' && <AdminPanel onNavigate={navigateTo} />}
+            {currentPage === 'admin' && isAdmin && <AdminPanel onNavigate={navigateTo} />}
             
             {/* Workspace Area */}
             {currentPage === 'workspace' && problemData && (
