@@ -37,10 +37,13 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "-"
 
 
-def _throttle(request: Request, username: str) -> None:
-    """Per-IP + per-username sliding-window throttle (brute-force guard)."""
+def _throttle(request: Request, username: str | None) -> None:
+    """Per-IP (+ per-username when given) sliding-window throttle."""
     ip = _client_ip(request)
-    for key in (f"ip:{ip}", f"user:{(username or '').strip().lower()}"):
+    keys = [f"ip:{ip}"]
+    if username and username.strip():
+        keys.append(f"user:{username.strip().lower()}")
+    for key in keys:
         allowed, retry_after = login_rate_limiter.hit(
             key, settings.RATE_LIMIT_ATTEMPTS, settings.RATE_LIMIT_WINDOW
         )
@@ -56,6 +59,7 @@ def _throttle(request: Request, username: str) -> None:
 @router.post("/google")
 async def login_with_google(
     payload: GoogleTokenPayload,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -63,14 +67,18 @@ async def login_with_google(
     Frontend sends the access_token obtained from Google Identity Services.
     Backend verifies it, creates/finds user, returns JWT.
     """
+    _throttle(request, None)   # per-IP only — the token isn't guessable, but this endpoint makes an outbound call per hit
+    ip = _client_ip(request)
     try:
         result = await google_login(payload.access_token, db)
-        return result
     except ValueError as e:
+        audit.log_auth("google", username="-", ip=ip, status="invalid", detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         logger.exception("google_login failed")
         raise HTTPException(status_code=500, detail="ยืนยันตัวตนไม่สำเร็จ กรุณาลองใหม่")
+    audit.log_auth("google", username=result["user"]["username"], ip=ip, status="success")
+    return result
 
 
 # ── POST /api/auth/register ───────────────────────────────────
@@ -78,13 +86,16 @@ async def login_with_google(
 async def register(body: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """สมัครสมาชิกด้วย username / password / email / name / modules"""
     _throttle(request, body.username)
+    ip = _client_ip(request)
     try:
         user = await register_user(db, body)
     except ValueError as e:
+        audit.log_auth("register", username=body.username, ip=ip, status="rejected", detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     except IntegrityError:
         raise HTTPException(status_code=409, detail="Username หรือ Email นี้ถูกใช้แล้ว")
 
+    audit.log_auth("register", username=user.username, ip=ip, status="success")
     token = create_token(user)
     return AuthResponse(success=True, token=token, user=UserOut.model_validate(user))
 
