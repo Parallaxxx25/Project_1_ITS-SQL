@@ -82,11 +82,11 @@ services:
   partner-api:
     build: ./backend
     environment:
-      # Pinned so JWTs survive a container restart — unpinned, config.py
-      # falls back to a fresh random key per process start, silently
-      # invalidating every logged-in session (and breaking anything
-      # authenticated, like the tutor hint passthrough) on every restart.
-      SECRET_KEY: 4d2d818c3a64ccfbf2f2c9ffab354394814cb71ff3fb9717454abb42fac85228
+      # Read from ./.env (gitignored) — compose refuses to start if unset.
+      # Keep it stable across restarts or every logged-in session is
+      # invalidated on each boot. Generate one with:
+      #   python -c "import secrets; print(secrets.token_hex(32))"
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in ./.env — see backend/.env.example}
       DATABASE_URL: sqlite+aiosqlite:///./its_sql.db
       TUTOR_SERVICE_URL: http://tutor-api:8000
       # Empty = auth disabled between the two services, same local-dev

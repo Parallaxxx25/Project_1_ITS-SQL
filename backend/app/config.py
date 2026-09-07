@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from functools import lru_cache
-import secrets
 
 
 class Settings(BaseSettings):
@@ -9,7 +9,10 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # ── JWT ──
-    SECRET_KEY: str = secrets.token_hex(32)
+    # Required — no default. A random per-process key silently invalidates
+    # every live JWT on restart and makes multi-worker deploys reject each
+    # other's tokens. Set it in backend/.env (see backend/.env.example).
+    SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480  # 8 hours
 
@@ -54,6 +57,16 @@ class Settings(BaseSettings):
     TUTOR_SERVICE_KEY: str = ""
 
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def _require_secret_key(self):
+        if not self.SECRET_KEY or self.SECRET_KEY == "change-me-to-a-random-secret-key":
+            raise ValueError(
+                "SECRET_KEY is not set. Create backend/.env with a real value. "
+                'Generate one with: python -c "import secrets; print(secrets.token_hex(32))" '
+                "(see backend/.env.example)"
+            )
+        return self
 
 
 @lru_cache()
