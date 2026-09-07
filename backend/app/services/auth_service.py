@@ -57,10 +57,12 @@ async def register_user(db: AsyncSession, body: RegisterRequest) -> User:
     if existing_email:
         raise ValueError("Email นี้ถูกใช้แล้ว")
 
-    # Check instructor authorization
-    if body.role == Role.INSTRUCTOR:
-        if body.name not in settings.AUTHORIZED_INSTRUCTORS:
-            raise ValueError(f"ชื่อ '{body.name}' ไม่ได้รับสิทธิ์เป็นผู้สอน กรุณาติดต่อผู้ดูแลระบบ")
+    # Self-signup mints students ONLY. `role` arrives from the client, so it is
+    # never trusted: the previous check only guarded INSTRUCTOR, which let anyone
+    # POST role="admin" straight past it. Staff accounts come from
+    # app/seed.py::INSTRUCTOR_SEED, never from this endpoint.
+    if body.role != Role.STUDENT:
+        raise ValueError("สมัครสมาชิกได้เฉพาะบัญชีนักศึกษา — บัญชีผู้สอนสร้างโดยผู้ดูแลระบบ")
 
     user = User(
         username=body.username,
@@ -95,7 +97,7 @@ async def login_user(db: AsyncSession, body: LoginRequest) -> User:
 
 
 # ── Google OAuth Login ────────────────────────────────────────
-async def google_login(access_token: str, db: AsyncSession, requested_role: str | None = None) -> dict:
+async def google_login(access_token: str, db: AsyncSession) -> dict:
     """
     Verify a Google OAuth access token via the userinfo endpoint, then
     find-or-create the local user. Returns {success, token, user}.
@@ -122,9 +124,7 @@ async def google_login(access_token: str, db: AsyncSession, requested_role: str 
 
     user = await db.scalar(select(User).where(User.email == email))
     if not user:
-        role = Role.STUDENT
-        if requested_role == "instructor" and name in settings.AUTHORIZED_INSTRUCTORS:
-            role = Role.INSTRUCTOR
+        role = Role.STUDENT   # Google sign-in never grants staff — see INSTRUCTOR_SEED.
         user = User(
             username=email.split("@")[0],
             password_hash=hash_password(secrets.token_urlsafe(32)),  # unusable local password

@@ -64,7 +64,7 @@ async def login_with_google(
     Backend verifies it, creates/finds user, returns JWT.
     """
     try:
-        result = await google_login(payload.access_token, db, requested_role=payload.role)
+        result = await google_login(payload.access_token, db)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
