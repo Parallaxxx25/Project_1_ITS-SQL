@@ -19,14 +19,6 @@ import { logout as authApiLogout } from './lib/auth-api';
  
 import botIcon from './assets/bot.png';
 
-// ── Authorized Instructors ─────────────────────────────────────
-const AUTHORIZED_INSTRUCTORS = [
-  'ผศ.ดร.กนกวรรณ อัจฉริยะชาญวณิช',
-  'ดร.ศิรสิทธิ์ โล่ชนะจิต',
-  'นายพชร พรอโนทัย',
-  'นายณัฐวีร์ เแนกำพล',
-]; 
-
 export default function App() {
   const isFreshEntry = !sessionStorage.getItem('is_initialized');
 

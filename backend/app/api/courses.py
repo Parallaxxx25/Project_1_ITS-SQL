@@ -16,7 +16,7 @@ from app.schemas.course import (
     ModuleCreate, ModuleOut,
     LessonCreate, LessonOut,
 )
-from app.middleware.auth import get_current_user, require_instructor, require_ta, require_authorized_instructor
+from app.middleware.auth import get_current_user, require_instructor, require_ta
 
 router = APIRouter(prefix="/courses", tags=["Courses"])
 
@@ -65,7 +65,7 @@ async def list_courses(
 @router.post("", response_model=CourseOut, status_code=status.HTTP_201_CREATED)
 async def create_course(
     payload: CourseCreate,
-    user: User = Depends(require_authorized_instructor),
+    user: User = Depends(require_instructor),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new course. Authorized Instructor/Admin only."""

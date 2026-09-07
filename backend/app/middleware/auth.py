@@ -67,21 +67,6 @@ def require_roles(*roles: Role):
     return checker
 
 
-def require_authorized_instructor(user: User = Depends(get_current_user)):
-    """Check if user is instructor and authorized to manage courses."""
-    if user.role != Role.INSTRUCTOR:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only instructors can access this resource",
-        )
-    if user.name not in settings.AUTHORIZED_INSTRUCTORS:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not authorized to access the instructor panel",
-        )
-    return user
-
-
 # Convenience dependencies
 require_student = require_roles(Role.STUDENT, Role.TA, Role.INSTRUCTOR, Role.ADMIN)
 require_ta = require_roles(Role.TA, Role.INSTRUCTOR, Role.ADMIN)

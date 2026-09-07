@@ -15,7 +15,7 @@ from app.schemas.problem import (
     DatasetCreate, DatasetOut,
     HintCreate, HintOut,
 )
-from app.middleware.auth import get_current_user, require_instructor, require_ta, require_authorized_instructor
+from app.middleware.auth import get_current_user, require_instructor, require_ta
 
 router = APIRouter(prefix="/problems", tags=["Problems"])
 
@@ -93,7 +93,7 @@ async def get_problem(
 async def create_problem(
     lesson_id: int,
     payload: ProblemCreate,
-    user: User = Depends(require_authorized_instructor),
+    user: User = Depends(require_instructor),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a problem in a lesson. Authorized Instructor/Admin only."""

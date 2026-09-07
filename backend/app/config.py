@@ -36,15 +36,6 @@ class Settings(BaseSettings):
     SANDBOX_MYSQL_USER: str = "root"
     SANDBOX_MYSQL_PASSWORD: str = ""
 
-    # ── Authorized Instructors ──
-    # Names allowed to hold the instructor role (register + instructor-panel gate).
-    # Must match the seeded instructor accounts (see app/seed.py INSTRUCTOR_SEED).
-    AUTHORIZED_INSTRUCTORS: list[str] = [
-        "Instructor aj001",
-        "นายพชร พรอโนทัย",
-        "นายณัฐวีร์ เเนกำพล",
-    ]
-
     # ── Supabase (Activity Tracking) ──
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_KEY: str = ""
