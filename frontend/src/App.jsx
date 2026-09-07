@@ -14,7 +14,7 @@ import AdminPanel from './components/AdminPanel';
 import { dbManager } from './lib/db-manager';
 import { getAllProblems } from './lib/problems';
 import { Verifier, stripSqlComments } from './lib/verifier';
-import { requestClientHint, fetchClientHint } from './lib/api';
+import { requestClientHint, fetchClientHint, getCurrentUser, getToken, clearAuth } from './lib/api';
 import { logout as authApiLogout } from './lib/auth-api';
  
 import botIcon from './assets/bot.png';
@@ -22,11 +22,12 @@ import botIcon from './assets/bot.png';
 export default function App() {
   const isFreshEntry = !sessionStorage.getItem('is_initialized');
 
-  const [user, setUser] = useState(() => {
-    if (isFreshEntry) return null;
-    const saved = sessionStorage.getItem('userData');
-    return saved ? JSON.parse(saved) : null;
-  });
+  // The server is the only source of truth for the session. `user` starts
+  // null and is populated by restoreSession() (below) hitting /api/auth/me
+  // with the stored JWT — a hand-edited sessionStorage.userData no longer
+  // grants anything, and an expired token surfaces as logged-out instead of
+  // a UI that looks logged in while every call 401s.
+  const [user, setUser] = useState(null);
 
   const isLoggedIn = !!user;
 
@@ -40,7 +41,7 @@ export default function App() {
 
   const [currentPage, setCurrentPage] = useState(() => {
     if (isFreshEntry) return getPageFromPath() || 'home';
-    const auth = sessionStorage.getItem('isLoggedIn') === 'true';
+    const auth = !!getToken();
     if (!auth) return 'home';
     return getPageFromPath() || sessionStorage.getItem('currentPage') || 'home';
   });
@@ -154,17 +155,35 @@ export default function App() {
 
   useEffect(() => {
     sessionStorage.setItem('is_initialized', 'true');
+
+    // Revalidate the stored token against the server. Never throws — a bad
+    // token just clears the session. Kept as a promise so the existing
+    // isLoading gate (cleared in the finally below) covers the round-trip.
+    const restoreSession = async () => {
+      if (!getToken()) { clearAuth(); return; }
+      try {
+        const me = await getCurrentUser();   // GET /api/auth/me
+        setUser(me);
+        sessionStorage.setItem('userData', JSON.stringify(me));
+        sessionStorage.setItem('isLoggedIn', 'true');
+      } catch {
+        clearAuth();
+        setUser(null);
+      }
+    };
+
     const initializeApp = async () => {
-      try { 
+      const session = restoreSession();
+      try {
         if (!window.duckdb_initialized) {
-          await dbManager.initialize(); 
+          await dbManager.initialize();
           window.duckdb_initialized = true;
         }
       } catch (err) {
         console.error(err);
         setDbError(err?.message || 'ไม่สามารถเริ่มต้นฐานข้อมูล (DuckDB) ได้ กรุณารีเฟรชหน้า');
       }
-      finally { setIsLoading(false); }
+      finally { await session; setIsLoading(false); }
     };
     initializeApp();
   }, []);
