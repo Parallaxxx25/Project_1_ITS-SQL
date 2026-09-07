@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from app.database import get_db
 from app.config import get_settings
 from app.schemas.user import GoogleTokenPayload, UserOut
-from app.schemas.auth import RegisterRequest, LoginRequest, ActivityRequest, AuthResponse, UserResponse
+from app.schemas.auth import RegisterRequest, LoginRequest, ActivityRequest, AuthResponse
 from app.services.auth_service import google_login, register_user, login_user, create_token
 from app.services import audit
 from app.services.rate_limiter import login_rate_limiter
@@ -86,18 +86,7 @@ async def register(body: RegisterRequest, request: Request, db: AsyncSession = D
         raise HTTPException(status_code=409, detail="Username หรือ Email นี้ถูกใช้แล้ว")
 
     token = create_token(user)
-    return AuthResponse(
-        success=True,
-        token=token,
-        user=UserResponse(
-            id=user.id,
-            username=user.username,
-            email=user.email,
-            name=user.name,
-            role=user.role.value,
-            modules=user.modules_list(),
-        ),
-    )
+    return AuthResponse(success=True, token=token, user=UserOut.model_validate(user))
 
 
 # ── POST /api/auth/login ──────────────────────────────────────
@@ -116,18 +105,7 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
     login_rate_limiter.reset(f"user:{(body.username or '').strip().lower()}")
     audit.log_auth("login", username=user.username, ip=ip, status="success")
     token = create_token(user)
-    return AuthResponse(
-        success=True,
-        token=token,
-        user=UserResponse(
-            id=user.id,
-            username=user.username,
-            email=user.email,
-            name=user.name,
-            role=user.role.value,
-            modules=user.modules_list(),
-        ),
-    )
+    return AuthResponse(success=True, token=token, user=UserOut.model_validate(user))
 
 
 # ── GET /api/auth/me ────────────────────────────────────────

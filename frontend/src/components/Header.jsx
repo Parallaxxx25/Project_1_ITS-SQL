@@ -107,13 +107,6 @@ export default function Header({ currentPage, onNavigate, isLoggedIn, userData, 
     </button>
   );
 
-  const getDisplayName = () => {
-    if (userData?.email) {
-      const prefix = userData.email.split('@')[0];
-      return prefix.toLowerCase().startsWith('it') ? prefix : `it${prefix}`;
-    }
-    return userData?.displayId || 'USER';
-  };
 
   const handleCourseClick = () => {
     const scrollToCoursesSection = () => {
@@ -139,7 +132,7 @@ export default function Header({ currentPage, onNavigate, isLoggedIn, userData, 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const displayName = getDisplayName();
+  const displayName = userData?.student_id || userData?.username || userData?.name || 'USER';
   const avatarInitials = displayName.substring(0, 2).toUpperCase();
 
   return (

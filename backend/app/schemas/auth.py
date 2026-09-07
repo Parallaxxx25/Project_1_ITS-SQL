@@ -4,6 +4,7 @@ app/schemas/auth.py — Pydantic schemas for authentication
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
 from app.models.user import Role
+from app.schemas.user import UserOut
 
 
 # ── Request schemas ───────────────────────────────────────────
@@ -55,18 +56,7 @@ class ActivityRequest(BaseModel):
 
 
 # ── Response schemas ──────────────────────────────────────────
-class UserResponse(BaseModel):
-    id: int
-    username: str
-    email: str
-    name: str
-    role: str
-    modules: list[str]
-
-    model_config = {"from_attributes": True}
-
-
 class AuthResponse(BaseModel):
     success: bool
     token: str
-    user: UserResponse
+    user: UserOut   # same shape as GET /api/auth/me, so the client sees one user object
