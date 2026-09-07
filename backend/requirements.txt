@@ -10,10 +10,8 @@ aiosqlite==0.20.0
 alembic==1.14.1
 
 # ── Authentication ──
-python-jose[cryptography]==3.3.0
-# app/services/auth_service.py imports `jwt` (PyJWT) directly, separately
-# from the python-jose usage elsewhere — was missing here, which breaks
-# every /api/auth/* endpoint (including login) with ModuleNotFoundError.
+# PyJWT is the only JWT library: auth_service.py mints and decodes,
+# middleware/auth.py verifies through the same decode_token().
 pyjwt==2.10.1
 httpx==0.28.1
 google-auth==2.37.0

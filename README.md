@@ -23,7 +23,7 @@ A full-stack SQL learning platform with **automated grading**, **role-based acce
 |------------|-----------------------------------------------------|
 | Frontend   | React 18, Vite 5, Tailwind CSS 3, Monaco Editor     |
 | Backend    | FastAPI, SQLAlchemy 2 (async), aiosqlite, Pydantic   |
-| Auth       | Google Identity Services → FastAPI JWT (python-jose) |
+| Auth       | Google Identity Services → FastAPI JWT (PyJWT) |
 | Grading    | SQLite sandbox (temp file per submission)            |
 | Database   | SQLite (platform data) + Bikestore dataset           |
 
