@@ -1,4 +1,4 @@
 [submodule "tutor"]
 	path = tutor
 	url = https://github.com/Parallaxxx25/intelligent-tutor
-	branch = feat/partner-integration
+	branch = main
