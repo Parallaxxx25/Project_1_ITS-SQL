@@ -318,9 +318,9 @@ export default function Home({ onNavigate, user }) {
             </p>
             <p className="font-medium text-[#f8f9fa]/80 text-sm flex items-center justify-center gap-2">
                 Crafted by 
-                <a href="https://github.com/Whiterose48" target="_blank" rel="noopener noreferrer" className="text-[#f8f9fa] border-b border-[#e85d04]/50 hover:text-[#f48c06] hover:border-[#f48c06] transition-colors font-bold pb-0.5">@Phruk</a> 
+                <a href="https://github.com/Whiterose48" target="_blank" rel="noopener noreferrer" className="text-[#f8f9fa] border-b border-[#e85d04]/50 hover:text-[#f48c06] hover:border-[#f48c06] transition-colors font-bold pb-0.5">@Phachara Pornanothai</a> 
                 <span className="text-[#0077b6]">&</span> 
-                <a href="https://github.com/Parallaxxx25" target="_blank" rel="noopener noreferrer" className="text-[#f8f9fa] border-b border-[#e85d04]/50 hover:text-[#f48c06] hover:border-[#f48c06] transition-colors font-bold pb-0.5">@Khet</a>
+                <a href="https://github.com/Parallaxxx25" target="_blank" rel="noopener noreferrer" className="text-[#f8f9fa] border-b border-[#e85d04]/50 hover:text-[#f48c06] hover:border-[#f48c06] transition-colors font-bold pb-0.5">@Natthawee Naewkampol</a>
             </p>
           </div>
 
