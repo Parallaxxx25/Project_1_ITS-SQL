@@ -7,7 +7,7 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Iceland"', 'sans-serif'],
+        sans: ['"IBM Plex Sans"', 'sans-serif'],
       },
       colors: {
         primary: '#1e3a8a',
