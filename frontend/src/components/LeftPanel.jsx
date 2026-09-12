@@ -1,4 +1,67 @@
 import React, { useState, useEffect } from 'react';
+import { dbManager } from '../lib/db-manager';
+import ResultTable from './ResultTable';
+
+const SAMPLE_ROW_LIMIT = 20;
+// Table names come from problem metadata, not from student input, but
+// instructor-authored problems can carry an arbitrary string — keep the
+// interpolation below to plain identifiers.
+const SAFE_TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+// Sample rows for one schema card. Auto-loaded for the problem's main table,
+// click-to-load for the rest, so a five-table JOIN problem doesn't fire five
+// queries on load. Any failure (DuckDB still initializing, table not in the
+// dataset) falls back silently to the schema-only card.
+function SampleRows({ tableName, autoLoad }) {
+  const [rows, setRows] = useState(null);
+  const [open, setOpen] = useState(!!autoLoad);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setRows(null);
+    setFailed(false);
+    setOpen(!!autoLoad);
+  }, [tableName, autoLoad]);
+
+  useEffect(() => {
+    if (!open || rows || failed) return;
+    if (!tableName || !SAFE_TABLE_NAME.test(tableName)) { setFailed(true); return; }
+    let cancelled = false;
+    dbManager.executeReadOnly(`SELECT * FROM ${tableName} LIMIT ${SAMPLE_ROW_LIMIT}`)
+      .then((res) => { if (!cancelled) setRows(res?.rows || []); })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [open, rows, failed, tableName]);
+
+  if (failed) return null;
+
+  return (
+    <div className="border-t border-slate-100">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full px-5 py-3 flex items-center justify-between text-left hover:bg-slate-50/60 transition-colors"
+      >
+        <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+          ตัวอย่างข้อมูล ({SAMPLE_ROW_LIMIT} แถวแรก)
+        </span>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className={`h-4 w-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          viewBox="0 0 20 20" fill="currentColor"
+        >
+          <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+        </svg>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 overflow-x-auto">
+          {rows ? <ResultTable data={rows} /> : (
+            <p className="px-2 py-3 text-xs text-slate-400">กำลังโหลดข้อมูลตัวอย่าง...</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // แยก Timer ออกมาเป็น component ของตัวเอง เพื่อไม่ให้ตาราง Schema
 // ถูก re-render ใหม่ทุก ๆ วินาที (ช่วยเรื่อง performance)
@@ -190,6 +253,8 @@ function LeftPanel({ problemData, currentStep }) {
                   ))}
                 </tbody>
               </table>
+
+              <SampleRows tableName={tbl.name} autoLoad={tbl.name === problemData.table} />
             </div>
           ))}
         </div>

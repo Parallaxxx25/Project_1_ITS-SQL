@@ -9,6 +9,7 @@ import RightPanel from './components/RightPanel';
 import MySubmissions from './components/MySubmissions';
 import Tabs from './components/Tabs';
 import FeedbackOverlay from './components/FeedbackOverlay';
+import HintText from './components/HintText';
 import InstructorDashboard from './components/InstructorDashboard';
 import AdminPanel from './components/AdminPanel';
 import { dbManager } from './lib/db-manager';
@@ -223,6 +224,7 @@ export default function App() {
   const [isHintOpen, setIsHintOpen] = useState(false);
   const [botAlert, setBotAlert] = useState(false);
   const hintRef = useRef(null);
+  const hintPopoverRef = useRef(null);
   // Split in two calls, matching the tutor's own cost split: /grade
   // (deterministic, no LLM) fires right after a failed submit so the bot-dot
   // reflects real hint availability; /hint (the Gemini call) fires only when
@@ -235,6 +237,29 @@ export default function App() {
   const lastAttemptRef = useRef({ query: '', attemptNumber: 0 });
 
   useEffect(() => { localStorage.setItem('selectedTab', selectedTab); }, [selectedTab]);
+
+  // Light dismiss (click outside / Esc) closes the popover in the browser, not
+  // in React — mirror it back so the FAB styling and botAlert stay in sync.
+  // Native listener rather than onToggle: React 18 only wires that for <details>.
+  useEffect(() => {
+    const el = hintPopoverRef.current;
+    if (!el) return;
+    const onToggle = (e) => { if (e.newState === 'closed') setIsHintOpen(false); };
+    el.addEventListener('toggle', onToggle);
+    return () => el.removeEventListener('toggle', onToggle);
+  }, [currentPage]);
+
+  // Mirror isHintOpen onto the native popover. showPopover/hidePopover throw
+  // if the element is already in that state, hence the guards.
+  useEffect(() => {
+    const el = hintPopoverRef.current;
+    // Popover API is baseline since 2024; on anything older the panel simply
+    // never opens rather than crashing the workspace.
+    if (!el || !el.isConnected || typeof el.showPopover !== 'function') return;
+    const isOpen = el.matches(':popover-open');
+    if (isHintOpen && !isOpen) el.showPopover();
+    if (!isHintOpen && isOpen) el.hidePopover();
+  }, [isHintOpen]);
 
   const refreshCurrentSubmissions = useCallback((step) => {
     const { submissionKey } = getWorkspaceKeys();
@@ -339,6 +364,10 @@ export default function App() {
         setOverlay({ visible: false });
         setSubmitError(result.error);
 
+        // EXAM gets no AI hints from any path — the failed/passed branch below
+        // already checks this; this one used to leak a hint on engine errors.
+        if ((localStorage.getItem('workspaceMode') || 'COURSE') === 'EXAM') return;
+
         const { submissionKey: errSubmissionKey } = getWorkspaceKeys();
         const errExistingSubs = JSON.parse(localStorage.getItem(errSubmissionKey)) || {};
         const errPriorAttempts = errExistingSubs[currentProblem]?.attempts?.length || 0;
@@ -437,6 +466,49 @@ export default function App() {
     } catch (err) {
       setOverlay({ visible: false });
       setSubmitError(err?.message || 'เกิดข้อผิดพลาดในการตรวจคำตอบ');
+    }
+  };
+
+  // "Run Code" — the scratch pad. Runs the student's query and shows the rows,
+  // nothing else: no submission record, no step status, and deliberately no
+  // correctness verdict (that stays Submit's job, so Run can't be used as a
+  // free grader). A query that *errors* still buys a tutor hint, and therefore
+  // still costs an attempt on the escalation ladder.
+  const handleRunCode = async (code) => {
+    if (!problemData || problemData.title === 'NO CONTENT FOUND') return null;
+    if (dbError) return { error: dbError };
+
+    const cleanCode = stripSqlComments(code);
+    if (!cleanCode.trim().endsWith(';')) {
+      // Client-side formatting rule: nothing ran, so it costs nothing.
+      return { error: 'Syntax Error: SQL queries must end with a semicolon (;).' };
+    }
+
+    try {
+      const result = await dbManager.executeReadOnly(cleanCode.trim().replace(/;+\s*$/, ''));
+      // Flatten Arrow row proxies into plain objects, in schema column order —
+      // ResultTable reads its headers off Object.keys(rows[0]).
+      const cols = result?.columns || [];
+      const rows = (result?.rows || []).map(
+        (r) => Object.fromEntries(cols.map((c) => [c, r[c]]))
+      );
+      return { rows };
+    } catch (err) {
+      const mode = localStorage.getItem('workspaceMode') || 'COURSE';
+      if (mode !== 'EXAM') {
+        const { submissionKey } = getWorkspaceKeys();
+        const existingSubs = JSON.parse(localStorage.getItem(submissionKey)) || {};
+        // Read-only: an errored run is never written back to the submission
+        // history, so it stays out of My Submissions and instructor grading.
+        const priorAttempts = existingSubs[currentProblem]?.attempts?.length || 0;
+        lastAttemptRef.current = { query: code, attemptNumber: priorAttempts + 1, isCorrect: false };
+        setHasAttempted(true);
+        setCurrentHint(null);
+        setTutorHintStatus('idle');
+        hintRequestIdRef.current = null;
+        requestTutorHint(code, priorAttempts + 1, false);
+      }
+      return { error: err?.message || 'เกิดข้อผิดพลาดในการรันคำสั่ง' };
     }
   };
 
@@ -608,7 +680,7 @@ export default function App() {
                   <div className="lg:col-span-2 relative z-20 flex flex-col gap-6">
                     <Tabs selectedTab={selectedTab} onTabChange={setSelectedTab} />
                     {selectedTab === 'description' ? (
-                      <RightPanel problemData={problemData} currentStep={currentProblem} onSubmit={handleSubmit} isExamLocked={workspaceMode === 'EXAM' && problemStatuses[currentProblem - 1] === 'passed'} submitError={submitError} />
+                      <RightPanel problemData={problemData} currentStep={currentProblem} onSubmit={handleSubmit} onRun={handleRunCode} isExamLocked={workspaceMode === 'EXAM' && problemStatuses[currentProblem - 1] === 'passed'} submitError={submitError} />
                     ) : (
                       <MySubmissions submissions={submissions} moduleSubs={moduleSubs} problemData={problemData} />
                     )}
@@ -625,15 +697,15 @@ export default function App() {
       {/* --- ✨ REDESIGNED AI ASSISTANT (Modern Minimal / HUD Style) ✨ --- */}
       {currentPage === 'workspace' && isLoggedIn && workspaceMode !== 'EXAM' && (
         <>
-          {/* Backdrop for overlay */}
-          {isHintOpen && (
-            <div className="fixed inset-0 z-[1999] bg-slate-900/10 backdrop-blur-sm transition-opacity duration-300" onClick={() => setIsHintOpen(false)}></div>
-          )}
-          
           <div className="fixed bottom-8 right-8 z-[2000] flex flex-col items-end pointer-events-none" ref={hintRef}>
-            
-            {/* Chat Bubble / Hint Panel */}
-            <div className={`pointer-events-auto absolute bottom-[calc(100%+20px)] right-0 transition-all duration-500 ease-out origin-bottom-right ${isHintOpen ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-8 pointer-events-none'}`}>
+
+            {/* Chat Bubble / Hint Panel — a native popover, so the browser
+                handles light dismiss: one click outside closes it AND still
+                reaches whatever was clicked, with no backdrop swallowing it. */}
+            <div
+              popover="auto"
+              ref={hintPopoverRef}
+              className="hint-popover pointer-events-auto fixed inset-auto right-8 bottom-[124px] origin-bottom-right">
               <div className="bg-white rounded-[2rem] shadow-[0_30px_80px_-20px_rgba(3,4,94,0.3)] border border-slate-100 w-[90vw] max-w-[420px] overflow-hidden flex flex-col relative">
                 
                 {/* Panel Header */}
@@ -697,13 +769,8 @@ export default function App() {
                         </span>
                       </div>
                       <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex-1">
-                        <p className="text-[15px] font-medium text-slate-700 leading-relaxed">
-                          {currentHint.hint_text}
-                        </p>
+                        <HintText text={currentHint.hint_text} />
                       </div>
-                      {currentHint.source !== 'local' && (
-                        <p className="text-[10px] font-medium text-slate-400 mt-4 text-center">Submit again for a deeper hint.</p>
-                      )}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-4">

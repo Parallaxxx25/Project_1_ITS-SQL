@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { examLockState } from '../lib/instructor-store';
+import ResultTable from './ResultTable';
 
 const SQL_KEYWORDS = [
   { label: 'SELECT', kind: 'Keyword', insertText: 'SELECT', detail: 'เลือกคอลัมน์ที่ต้องการแสดงผล' },
@@ -44,9 +45,14 @@ const SQL_KEYWORDS = [
   { label: 'MAX', kind: 'Function', insertText: 'MAX', detail: 'ค่ามากที่สุด' }
 ];
 
-export default function RightPanel({ problemData, currentStep, onStepChange, onSubmit, isExamLocked = false, submitError = null }) {
+export default function RightPanel({ problemData, currentStep, onStepChange, onSubmit, onRun, isExamLocked = false, submitError = null }) {
   const [code, setCode] = useState('-- Write your SQL query here --');
   const [isRunning, setIsRunning] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+  // Scratch-pad output: { rows } | { error } | null. Cleared when the student
+  // moves to another problem, but deliberately NOT on submit — the run output
+  // stays available to compare against the graded verdict.
+  const [runResult, setRunResult] = useState(null);
   const editorRef = useRef(null);
   const [isTimeUp, setIsTimeUp] = useState(false);
   const [examGate, setExamGate] = useState({ reason: null, remainingMs: null });
@@ -95,7 +101,8 @@ export default function RightPanel({ problemData, currentStep, onStepChange, onS
     if (!problemData) return;
     const storageKey = getStorageKey();
     const savedCode = localStorage.getItem(storageKey);
-    
+    setRunResult(null);
+
     if (savedCode) {
       setCode(savedCode); 
     } else {
@@ -157,6 +164,21 @@ export default function RightPanel({ problemData, currentStep, onStepChange, onS
       console.error('Submit error:', error);
     } finally {
       setIsRunning(false);
+    }
+  };
+
+  const handleRunCode = async () => {
+    if (isRunning || isExecuting || lockedAny) return;
+    setIsExecuting(true);
+    try {
+      if (typeof onRun === 'function') {
+        setRunResult(await onRun(code));
+      }
+    } catch (error) {
+      console.error('Run error:', error);
+      setRunResult({ error: error?.message || 'Run failed' });
+    } finally {
+      setIsExecuting(false);
     }
   };
 
@@ -295,11 +317,41 @@ export default function RightPanel({ problemData, currentStep, onStepChange, onS
         </div>
       )}
 
-      {/* Action Button */}
+      {/* Action Buttons — Run Code (scratch) left, Submit Answer (graded) right */}
+      <div className="flex justify-end items-center gap-3">
+
+      <button
+        onClick={handleRunCode}
+        disabled={isRunning || isExecuting || lockedAny}
+        className={`flex items-center justify-center gap-2.5 px-6 py-4 rounded-2xl font-semibold text-base border transition-all duration-300
+          ${lockedAny
+            ? 'border-slate-200 text-slate-300 cursor-not-allowed'
+            : 'border-slate-300 text-slate-600 hover:bg-slate-50 hover:border-slate-400 cursor-pointer'
+          }
+        `}
+      >
+        {isExecuting ? (
+          <>
+            <svg className="animate-spin h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Running...
+          </>
+        ) : (
+          <>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+            </svg>
+            Run Code
+          </>
+        )}
+      </button>
+
       <button
         onClick={handleRunQuery}
-        disabled={isRunning || lockedAny}
-        className={`w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-semibold text-base transition-all duration-300
+        disabled={isRunning || isExecuting || lockedAny}
+        className={`flex items-center justify-center gap-3 px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-300
           ${isExamLocked
             ? 'bg-emerald-50 text-emerald-500 border border-emerald-200 cursor-not-allowed shadow-sm'
             : hardLock
@@ -339,6 +391,30 @@ export default function RightPanel({ problemData, currentStep, onStepChange, onS
           </>
         )}
       </button>
+
+      </div>
+
+      {/* Run Code output — rows only, never a correctness verdict */}
+      {runResult?.error && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="bg-red-50 border border-red-100 rounded-xl p-3 flex items-start gap-3"
+        >
+          <svg className="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          <p className="text-base font-semibold text-red-700 leading-relaxed whitespace-pre-wrap">{runResult.error}</p>
+        </div>
+      )}
+
+      {runResult?.rows && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Query Result</span>
+            <span className="text-slate-500 font-medium text-xs bg-slate-100 px-2.5 py-1 rounded-md">{runResult.rows.length} rows</span>
+          </div>
+          <ResultTable data={runResult.rows} />
+        </div>
+      )}
     </div>
   );
 }

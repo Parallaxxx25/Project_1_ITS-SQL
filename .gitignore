@@ -33,6 +33,9 @@ logs/
 *.sqlite
 *.sqlite3
 *.db-journal
+# scripts/reset_attempts.py dumps both databases here before wiping.
+backend/backups/
+
 
 # ═══ OS / editor ═══
 .DS_Store

@@ -132,3 +132,30 @@ html {
 @media (min-width: 1680px) {     /* large external displays */
   html { font-size: 15.5px; }
 }
+
+/* Native popover reset for the AI hint panel. The UA stylesheet gives every
+   [popover] a border, white background and inset:0 centering — strip those and
+   let Tailwind position it. transition-behavior keeps the old open animation
+   now that the browser toggles display. */
+.hint-popover {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  overflow: visible;
+  opacity: 0;
+  transform: scale(0.95) translateY(2rem);
+  transition: opacity .3s ease-out, transform .3s ease-out,
+              overlay .3s allow-discrete, display .3s allow-discrete;
+}
+
+.hint-popover:popover-open {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+@starting-style {
+  .hint-popover:popover-open {
+    opacity: 0;
+    transform: scale(0.95) translateY(2rem);
+  }
+}

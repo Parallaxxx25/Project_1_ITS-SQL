@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "vite",
+    "test": "node --test src/lib/",
     "build:ghpages": "VITE_BASE_PATH=/Project_1_ITS-SQL/ vite build",
     "deploy:ghpages": "npm run build:ghpages && npx gh-pages -d dist"
   },
