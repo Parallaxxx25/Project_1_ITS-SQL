@@ -11,7 +11,6 @@ import Tabs from './components/Tabs';
 import FeedbackOverlay from './components/FeedbackOverlay';
 import HintText from './components/HintText';
 import InstructorDashboard from './components/InstructorDashboard';
-import AdminPanel from './components/AdminPanel';
 import { dbManager } from './lib/db-manager';
 import { getAllProblems } from './lib/problems';
 import { Verifier, stripSqlComments } from './lib/verifier';
@@ -33,7 +32,7 @@ export default function App() {
   const isLoggedIn = !!user;
 
   // เอา 'courses' ออกจาก VALID_PAGES ตามโค้ดต้นฉบับของคุณ
-  const VALID_PAGES = ['home', 'coursetext', 'workspace', 'instructor', 'coursemanage', 'problems', 'admin'];
+  const VALID_PAGES = ['home', 'coursetext', 'workspace', 'instructor', 'coursemanage', 'problems'];
 
   const getPageFromPath = () => {
     const path = window.location.pathname.replace(/^\//, '') || 'home';
@@ -59,11 +58,6 @@ export default function App() {
         return;
       }
     }
-    if (page === 'admin' && user?.role !== 'admin') {
-      console.warn('Access denied: admin only');
-      return;
-    }
-    
     setCurrentPage(page);
     if (!isPopstateRef.current) {
       const url = page === 'home' ? '/' : `/${page}`;
@@ -600,7 +594,6 @@ export default function App() {
   const isTeachPage = ['instructor', 'coursemanage', 'problems'].includes(currentPage);
   // TA is bundled with instructor — both count as teaching staff.
   const canTeach = !!user && ['instructor', 'ta'].includes(user.role);
-  const isAdmin = user?.role === 'admin';
 
   // Locked steps (EXAM only) — memoized to keep StepIndicator from re-rendering needlessly
   const lockedSteps = useMemo(
@@ -648,8 +641,7 @@ export default function App() {
             {currentPage === 'coursetext' && <CourseText onNavigate={navigateTo} user={user} />}
             {/* instructor / coursemanage / problems all resolve to the unified console */}
             {(currentPage === 'instructor' || currentPage === 'coursemanage' || currentPage === 'problems') && canTeach && <InstructorDashboard onNavigate={navigateTo} user={user} />}
-            {currentPage === 'admin' && isAdmin && <AdminPanel onNavigate={navigateTo} />}
-            
+
             {/* Workspace Area */}
             {currentPage === 'workspace' && problemData && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">

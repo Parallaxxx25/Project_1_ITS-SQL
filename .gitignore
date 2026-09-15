@@ -29,7 +29,11 @@ logs/
 *.log
 
 # ═══ Databases ═══
-# backend/its_sql.db is committed on purpose (seed data) — NOT ignored.
+# Was committed on purpose as seed data — now untracked, since the DB file
+# carries real user rows (bcrypt hashes, emails). Still needed locally for
+# SQLite dev; just don't let git track it going forward. Old copies remain
+# in history until a filter-repo purge (see the security review's Phase 0).
+backend/its_sql.db
 *.sqlite
 *.sqlite3
 *.db-journal

@@ -3,8 +3,8 @@ HTTP client for the tutor grading + hint service
 (github.com/Parallaxxx25/intelligent-tutor), called server-to-server with
 X-Service-Key.
 
-This platform's own SQLite sandbox (app/services/grading_service.py) is
-still what decides the verdict a student sees — see
+The live frontend's own client-side grading (DuckDB-WASM, App.jsx::handleSubmit)
+is still what decides the verdict a student sees — see
 https://github.com/Parallaxxx25/intelligent-tutor/blob/feat/partner-integration/docs/adr/0006-partner-primary-dual-grade.md
 for why. Every function here is off the critical path: any failure (service
 disabled, timeout, non-2xx) returns None rather than raising, so a tutor

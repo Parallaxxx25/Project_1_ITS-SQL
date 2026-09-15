@@ -51,7 +51,6 @@ export default function Header({ currentPage, onNavigate, isLoggedIn, userData, 
   const mobileMenuRef = useRef(null);
 
   const isStaff = userData?.role && ['instructor', 'ta', 'admin'].includes(userData.role);
-  const isAdmin = userData?.role === 'admin';
 
   // TA is merged into the Instructor identity — presented as Instructor everywhere.
   const roleLabel = { student: 'Student', ta: 'Instructor', instructor: 'Instructor', admin: 'Admin' };
@@ -164,9 +163,6 @@ export default function Header({ currentPage, onNavigate, isLoggedIn, userData, 
             {isStaff && (
               <button onClick={() => onNavigate('instructor')} className={getNavLinkStyle('instructor')}>Instructor</button>
             )}
-            {isAdmin && (
-              <button onClick={() => onNavigate('admin')} className={getNavLinkStyle('admin')}>Admin</button>
-            )}
           </nav>
         )}
 
@@ -233,15 +229,6 @@ export default function Header({ currentPage, onNavigate, isLoggedIn, userData, 
                       <span className="text-[#0077b6] opacity-0 group-hover:opacity-100 transition-opacity">→</span>
                     </button>
                   )}
-                  {isAdmin && (
-                    <button
-                      onClick={() => { setIsDropdownOpen(false); onNavigate('admin'); }}
-                      className="w-full text-left px-5 py-3 rounded-[16px] font-bold text-[#e85d04] text-sm hover:bg-[#e85d04]/10 transition-colors duration-200 flex justify-between items-center group"
-                    >
-                      Admin Settings
-                      <span className="text-[#e85d04] opacity-0 group-hover:opacity-100 transition-opacity">→</span>
-                    </button>
-                  )}
                 </div>
                 
                 <div className="p-3 border-t border-[#0077b6]/10 bg-[#f8f9fa]">
@@ -285,7 +272,6 @@ export default function Header({ currentPage, onNavigate, isLoggedIn, userData, 
                   {mobileNavBtn('home', 'Home')}
                   {mobileNavBtn('courses', 'Courses')}
                   {isStaff && mobileNavBtn('instructor', 'Instructor Console')}
-                  {isAdmin && mobileNavBtn('admin', 'Admin Settings')}
                 </div>
               </div>
             </div>

@@ -6,7 +6,10 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # ── App ──
     APP_NAME: str = "ITS-SQL Platform"
-    DEBUG: bool = True
+    # Default False — DEBUG=True enables SQL echo (see database.py) and,
+    # in the tutor service, an arbitrary-SQL debug endpoint. Opt in per
+    # environment, never ship it on by default.
+    DEBUG: bool = False
 
     # ── JWT ──
     # Required — no default. A random per-process key silently invalidates
@@ -17,6 +20,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480  # 8 hours
 
     # ── Database ──
+    # Default is local SQLite for dev. Production sets this in backend/.env
+    # (or the Render dashboard) to a real Postgres URL — never hardcode a
+    # live connection string with credentials here; this file is committed.
     DATABASE_URL: str = "sqlite+aiosqlite:///./its_sql.db"
 
     # ── Login throttle (brute-force guard, per IP + per username) ──
@@ -28,13 +34,6 @@ class Settings(BaseSettings):
 
     # ── Email domain restriction (Google OAuth) ──
     ALLOWED_EMAIL_DOMAIN: str = "kmitl.ac.th"
-
-    # ── Grading Sandbox ──
-    SANDBOX_DB_TYPE: str = "sqlite"  # "sqlite" or "mysql"
-    SANDBOX_MYSQL_HOST: str = "localhost"
-    SANDBOX_MYSQL_PORT: int = 3306
-    SANDBOX_MYSQL_USER: str = "root"
-    SANDBOX_MYSQL_PASSWORD: str = ""
 
     # ── Supabase (Activity Tracking) ──
     SUPABASE_URL: str = ""

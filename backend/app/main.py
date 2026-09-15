@@ -50,14 +50,21 @@ app = FastAPI(
     title=settings.APP_NAME,
     description="Interactive Tutoring System for SQL — Backend API",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    # Swagger/ReDoc off in production — only enable by setting DEBUG=true.
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
     lifespan=lifespan,
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
+    # Exact origins only — no wildcard regex. A regex like
+    # r"https://.*\.vercel\.app" would trust *any* stranger's Vercel
+    # deployment as a credentialed origin. If preview deployments need
+    # access, list each preview URL explicitly in FRONTEND_URL/here
+    # rather than reintroducing a wildcard.
     allow_origins=[
         settings.FRONTEND_URL,
         "http://localhost:5173",
@@ -65,9 +72,6 @@ app.add_middleware(
         "http://localhost:8081",
         "http://localhost:3000",
     ],
-    # Accept the production Vercel domain AND its preview deployments without
-    # having to hardcode each one (e.g. https://new-dblearn.vercel.app).
-    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

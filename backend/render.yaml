@@ -23,8 +23,10 @@ services:
         value: "false"
       - key: FRONTEND_URL
         value: https://new-dblearn.vercel.app
-      # ⚠️ Free plan has NO persistent disk: SQLite resets on redeploy/sleep.
-      # The 3 instructors re-seed on every boot (fine), but STUDENT sign-ups are
-      # lost on restart. For durable accounts: add a Render Disk (paid) mounted at
-      # /var/data and set DATABASE_URL=sqlite+aiosqlite:////var/data/its_sql.db,
-      # or switch to a managed Postgres.
+      # Free plan has NO persistent disk — SQLite would reset on every
+      # redeploy/sleep. DATABASE_URL points at managed Postgres instead
+      # (Neon/Supabase) so accounts survive. sync: false means Render
+      # won't store a value in this file — it prompts for it once during
+      # Blueprint setup and keeps it in the dashboard from then on.
+      - key: DATABASE_URL
+        sync: false

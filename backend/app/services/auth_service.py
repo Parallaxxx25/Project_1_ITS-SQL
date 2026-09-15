@@ -47,15 +47,18 @@ def decode_token(token: str) -> dict:
 
 # ── Register ──────────────────────────────────────────────────
 async def register_user(db: AsyncSession, body: RegisterRequest) -> User:
-    # Check duplicate username
-    existing_username = await db.scalar(select(User).where(User.username == body.username))
-    if existing_username:
-        raise ValueError("Username นี้ถูกใช้แล้ว")
+    # Same domain restriction as the Google path (see verify_google_token
+    # below) — password self-signup was the one way in that skipped it,
+    # letting anyone with any email register an account.
+    if settings.ALLOWED_EMAIL_DOMAIN and not body.email.endswith("@" + settings.ALLOWED_EMAIL_DOMAIN):
+        raise ValueError(f"อนุญาตเฉพาะอีเมล @{settings.ALLOWED_EMAIL_DOMAIN}")
 
-    # Check duplicate email
+    # Check duplicate username/email — one identical message for both, so a
+    # registration attempt can't be used to enumerate which accounts exist.
+    existing_username = await db.scalar(select(User).where(User.username == body.username))
     existing_email = await db.scalar(select(User).where(User.email == body.email))
-    if existing_email:
-        raise ValueError("Email นี้ถูกใช้แล้ว")
+    if existing_username or existing_email:
+        raise ValueError("Username หรือ Email นี้ถูกใช้แล้ว")
 
     # Self-signup mints students ONLY. `role` arrives from the client, so it is
     # never trusted: the previous check only guarded INSTRUCTOR, which let anyone

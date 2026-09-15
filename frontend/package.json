@@ -25,7 +25,6 @@
     "@duckdb/duckdb-wasm": "^1.28.0",
     "@monaco-editor/react": "^4.5.0",
     "apache-arrow": "^17.0.0",
-    "firebase": "^12.10.0",
     "flatbuffers": "^24.0.0",
     "json-bignum": "^0.0.3",
     "react": "^18.2.0",

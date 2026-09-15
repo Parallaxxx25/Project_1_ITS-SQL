@@ -228,23 +228,9 @@ export async function createHint(problemId, payload) {
 }
 
 // ─── Submissions ──────────────────────────────────────────
-
-export async function submitQuery(problemId, query, assignmentId = null) {
-  return apiFetch('/submissions', {
-    method: 'POST',
-    body: JSON.stringify({
-      problem_id: problemId,
-      query: query,
-      assignment_id: assignmentId,
-    }),
-  });
-}
-
-// The tutor service's own /hint can take several seconds (an LLM call) —
-// well past the 15s default apiFetch timeout, so this passes a longer one.
-export async function requestHint(submissionId) {
-  return apiFetch(`/submissions/${submissionId}/hint`, { method: 'POST' }, 30000);
-}
+// The server-graded POST /submissions + POST /{id}/hint pair was removed —
+// the live app grades entirely client-side (App.jsx::handleSubmit) and
+// never called either. See backend/app/api/submissions.py for the note.
 
 // ─── Tutor hint (client-graded flow) ───────────────────────
 // handleSubmit grades entirely in the browser (DuckDB-WASM) — these two

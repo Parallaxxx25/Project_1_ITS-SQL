@@ -3,12 +3,6 @@ from datetime import datetime
 
 
 # ── Submission ──
-class SubmissionCreate(BaseModel):
-    problem_id: int
-    query: str
-    assignment_id: int | None = None
-
-
 class SubmissionOut(BaseModel):
     id: int
     user_id: int
@@ -25,24 +19,8 @@ class SubmissionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class GradingResult(BaseModel):
-    submission_id: int | None = None
-    is_correct: bool
-    execution_time_ms: float
-    error_message: str | None = None
-    student_result: dict | None = None  # columns + rows (limited)
-    expected_result: dict | None = None
-    comparison: dict | None = None
-    hints: list[str] = []
-    # True when the tutor service minted a hint_token for this submission —
-    # tells the frontend whether to show the "get a hint" button. The token
-    # itself never appears here; fetch it via POST /submissions/{id}/hint.
-    hint_available: bool = False
-
-
 # ── Tutor hint request (client-graded flow — see App.jsx::handleSubmit,
-# which grades entirely in the browser via DuckDB-WASM and never calls
-# POST /submissions) ──
+# which grades entirely in the browser via DuckDB-WASM) ──
 class HintRequestIn(BaseModel):
     # The tutor service's own problem id (lib/problems.js's hand-mapped
     # tutorProblemId) — not this backend's own Problem.id, a separate,
