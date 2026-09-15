@@ -15,6 +15,9 @@ const MODULES = [
   { id: '03', name: 'WHERE Clause & Operators' },
   { id: '04', name: 'ORDER BY & LIMIT' },
   { id: '05', name: 'Joins & Relationships' },
+  { id: '06', name: 'Displaying Data from Multiple Tables' },
+  { id: '07', name: 'Aggregate Functions' },
+  { id: '08', name: 'Subqueries' },
 ];
 const moduleName = (id) => MODULES.find((m) => m.id === id)?.name || `Module ${id}`;
 const TABLES = Object.keys(dbSchema);

@@ -7,6 +7,9 @@ const INITIAL_LESSONS = [
   { id: '03', title: 'WHERE CLAUSE & OPERATORS', status: 'PENDING', desc: 'การกรองข้อมูลอย่างละเอียดด้วยเงื่อนไขต่างๆ' },
   { id: '04', title: 'ORDER BY & LIMIT', status: 'PENDING', desc: 'การจัดเรียงลำดับผลลัพธ์และการจำกัดจำนวนข้อมูล' },
   { id: '05', title: 'JOINS & RELATIONSHIPS', status: 'PENDING', desc: 'การรวมตารางหลายใบเข้าด้วยกันเพื่อดึงข้อมูลที่ซับซ้อน' },
+  { id: '06', title: 'DISPLAYING DATA FROM MULTIPLE TABLES', status: 'PENDING', desc: 'การแสดงข้อมูลจากหลายตารางด้วย OUTER JOIN และการหาแถวที่ไม่มีคู่' },
+  { id: '07', title: 'AGGREGATE FUNCTIONS', status: 'PENDING', desc: 'การสรุปข้อมูลด้วยฟังก์ชันรวม GROUP BY และ HAVING' },
+  { id: '08', title: 'SUBQUERIES', status: 'PENDING', desc: 'การเขียนคำสั่งซ้อนภายในคำสั่ง SQL ทั้งแบบ scalar, correlated และ EXISTS' },
 ];
 
 export default function CourseText({ onNavigate, user }) {
@@ -44,12 +47,16 @@ export default function CourseText({ onNavigate, user }) {
     if (!user) return; 
     const storageKey = `course_06070999_${user.id}_${activeTab}_lessons`;
     const saved = localStorage.getItem(storageKey);
-    if (saved) setLessons(JSON.parse(saved));
-    else setLessons(INITIAL_LESSONS);
+    // Merge on INITIAL_LESSONS so modules added after a student's list was
+    // cached still appear, keeping their saved progress.
+    const restored = saved
+      ? INITIAL_LESSONS.map((l) => JSON.parse(saved).find((s) => s.id === l.id) || l)
+      : INITIAL_LESSONS;
+    setLessons(restored);
 
     if (activeTab === 'ASSIGNMENT') {
       const storageKeyForSave = `course_06070999_${user.id}_ASSIGNMENT_lessons`;
-      const currentLessons = saved ? JSON.parse(saved) : INITIAL_LESSONS;
+      const currentLessons = restored;
       let updated = false;
       const updatedLessons = currentLessons.map(lesson => {
         const assignmentProblems = getAllProblems().filter(p => p.type === 'ASSIGNMENT' && p.moduleId === lesson.id);
