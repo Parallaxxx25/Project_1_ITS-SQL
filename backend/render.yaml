@@ -39,3 +39,17 @@ services:
       # Blueprint setup and keeps it in the dashboard from then on.
       - key: DATABASE_URL
         sync: false
+      # ── Tutor grading + hint service ──────────────────────────────────
+      # The hint panel's only backend. Empty URL disables the integration
+      # silently (app/services/tutor_client.py returns None before any HTTP),
+      # which surfaces in the UI as "Couldn't reach the AI Tutor" — the
+      # deploy-time failure this pair exists to prevent. Point it at the
+      # deployed intelligent-tutor service, no trailing slash:
+      #   https://dblearn-tutor.onrender.com
+      - key: TUTOR_SERVICE_URL
+        sync: false
+      # Must equal the tutor service's own SERVICE_KEY. Empty on BOTH sides
+      # disables auth between them — acceptable only for a local trial, never
+      # for two internet-reachable services.
+      - key: TUTOR_SERVICE_KEY
+        sync: false

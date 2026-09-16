@@ -22,10 +22,14 @@ from app.config import get_settings
 
 logger = logging.getLogger("app.tutor_client")
 
-# /grade runs deterministic SQL — no LLM — so 5s is generous. /hint calls
-# Gemini and can legitimately take several seconds; the tutor service's own
-# outer bound is 20s, so give it a little headroom rather than racing it.
-_GRADE_TIMEOUT = 5.0
+# /grade runs deterministic SQL — no LLM — so 5s is generous once the tutor
+# is warm. Cold is the case that actually breaks: on Render's free tier the
+# tutor spins down after ~15min idle and the first call pays a container
+# start. 10s absorbs that without being pointless — the browser aborts at
+# 15s (lib/api.js::apiFetch default), so a longer bound here is never read.
+# Keeping the tutor warm (cron ping) is the real fix for cold starts; this
+# only stops a slow-but-alive service from reading as an outage.
+_GRADE_TIMEOUT = 10.0
 _HINT_TIMEOUT = 25.0
 
 
