@@ -17,12 +17,21 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      # Render defaults to the newest Python (3.14), which has no prebuilt
+      # wheels for pydantic-core/asyncpg — pip falls back to a Rust source
+      # build and dies on Render's read-only cargo dir. Matches Dockerfile.
+      - key: PYTHON_VERSION
+        value: "3.12.8"
       - key: SECRET_KEY
         generateValue: true          # random, stable per service
       - key: DEBUG
         value: "false"
+      # Your own Vercel domain — prompted at Blueprint setup, not hardcoded.
+      # CORS is exact-match (app/main.py), so this must be the deployment you
+      # actually control. Never point it at an upstream/third-party domain:
+      # that adds someone else's origin to your credentialed allowlist.
       - key: FRONTEND_URL
-        value: https://new-dblearn.vercel.app
+        sync: false
       # Free plan has NO persistent disk — SQLite would reset on every
       # redeploy/sleep. DATABASE_URL points at managed Postgres instead
       # (Neon/Supabase) so accounts survive. sync: false means Render
