@@ -21,7 +21,7 @@ class Submission(Base):
     result_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # First N rows of result
     attempt_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     # Opaque handle for POST /submissions/{id}/hint — minted by the tutor
     # service's /api/v1/grade, never sent to the browser directly. NULL if
@@ -55,7 +55,7 @@ class SubmissionLog(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True
     )
 
     def __repr__(self):
@@ -87,7 +87,7 @@ class HintRequest(Base):
     tutor_problem_id: Mapped[int] = mapped_column(Integer, nullable=False)
     hint_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     def __repr__(self):
