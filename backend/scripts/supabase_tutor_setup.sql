@@ -30,13 +30,19 @@ CREATE SCHEMA IF NOT EXISTS sales;
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tutor_app') THEN
-        CREATE ROLE tutor_app WITH LOGIN PASSWORD 'CHANGE_ME_tutor_app_pass';
+        CREATE ROLE tutor_app WITH LOGIN PASSWORD 'gUjXDEq9q_8Q1Hfen2EcYwzHX35RilR1';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'student_ro') THEN
-        CREATE ROLE student_ro WITH LOGIN PASSWORD 'CHANGE_ME_student_ro_pass';
+        CREATE ROLE student_ro WITH LOGIN PASSWORD 'k0B1owHNDEqD-xXxP7JVvZH-UYeb1yqg';
     END IF;
 END
 $$;
+
+-- Supabase's `postgres` is not a superuser, so it cannot act "for" a role it
+-- is not a member of — ALTER DEFAULT PRIVILEGES FOR ROLE tutor_app below
+-- fails with 42501 "must be able to SET ROLE" without this. Granting the
+-- role to postgres (which created it, so it has admin on it) is enough.
+GRANT tutor_app TO postgres;
 
 -- ── tutor_app: the service's own connection (POSTGRES_URL / _SYNC) ──────
 -- search_path is set on the role rather than in the tutor's code: its
@@ -47,9 +53,13 @@ $$;
 -- use this role (see student_ro below).
 ALTER ROLE tutor_app SET search_path = tutor, production, sales;
 
-ALTER SCHEMA tutor      OWNER TO tutor_app;
-ALTER SCHEMA production OWNER TO tutor_app;
-ALTER SCHEMA sales      OWNER TO tutor_app;
+-- CREATE + USAGE, not ownership: the service only needs to create its own
+-- tables here (create_all at startup, and the data restore). Reassigning the
+-- schema owner would additionally require postgres to SET ROLE tutor_app,
+-- which Supabase's non-superuser postgres cannot do.
+GRANT ALL ON SCHEMA tutor      TO tutor_app;
+GRANT ALL ON SCHEMA production TO tutor_app;
+GRANT ALL ON SCHEMA sales      TO tutor_app;
 
 REVOKE ALL ON SCHEMA public FROM tutor_app;
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM tutor_app;
