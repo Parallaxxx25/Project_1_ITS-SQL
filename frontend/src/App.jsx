@@ -16,6 +16,7 @@ import { getAllProblems } from './lib/problems';
 import { Verifier, stripSqlComments } from './lib/verifier';
 import { requestClientHint, fetchClientHint, getCurrentUser, getToken, clearAuth } from './lib/api';
 import { logout as authApiLogout } from './lib/auth-api';
+import { rememberUser } from './lib/instructor-store';
  
 import botIcon from './assets/bot.png';
 
@@ -113,6 +114,10 @@ export default function App() {
       sessionStorage.setItem('isLoggedIn', 'true');
     }
   };
+
+  // Keep the id -> username map current so the instructor roster can name rows
+  // (submissions are stored under the numeric user id alone).
+  useEffect(() => { rememberUser(user); }, [user]);
 
   const [showWarning, setShowWarning] = useState(false);
   const [countdown, setCountdown] = useState(30);

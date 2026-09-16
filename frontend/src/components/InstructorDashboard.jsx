@@ -5,7 +5,7 @@ import {
   getAnnouncements, saveAnnouncement, deleteAnnouncement,
   getContent, saveContent, deleteContent,
   getAllSubmissions, onStoreChange,
-  getExamConfigs, setExamConfig,
+  getExamConfigs, setExamConfig, getUserNames,
 } from '../lib/instructor-store';
 
 // ── Constants ───────────────────────────────────────────────
@@ -632,6 +632,7 @@ function StudentsAnalytics({ submissions }) {
   const [openCat, setOpenCat] = useState(null); // selected module inside the student modal
 
   const data = useMemo(() => {
+    const names = getUserNames(); // id -> username, recorded at login
     const map = new Map();
     const byModule = {};
     const byMode = { COURSE: 0, ASSIGNMENT: 0, EXAM: 0 };
@@ -656,7 +657,7 @@ function StudentsAnalytics({ submissions }) {
       if (typeof s.durationMs === 'number') durations.push(s.durationMs);
     });
     const roster = [...map.values()]
-      .map((r) => ({ ...r, problems: r.problems.size, modules: r.modules.size, passRate: r.subs ? Math.round((r.passed / r.subs) * 100) : 0 }))
+      .map((r) => ({ ...r, name: names[r.userId] || '', problems: r.problems.size, modules: r.modules.size, passRate: r.subs ? Math.round((r.passed / r.subs) * 100) : 0 }))
       .sort((a, b) => b.last - a.last);
     const modules = Object.entries(byModule)
       .map(([id, v]) => ({ id, ...v, rate: v.total ? Math.round((v.passed / v.total) * 100) : 0 }))
@@ -673,13 +674,13 @@ function StudentsAnalytics({ submissions }) {
     let list = data.roster;
     if (filter === 'atrisk') list = list.filter((r) => r.passRate < 50);
     else if (filter === 'top') list = list.filter((r) => r.passRate >= 80);
-    if (q) { const query = q.toLowerCase(); list = list.filter((r) => r.userId.toLowerCase().includes(query)); }
+    if (q) { const query = q.toLowerCase(); list = list.filter((r) => r.userId.toLowerCase().includes(query) || r.name.toLowerCase().includes(query)); }
     const by = {
       recent: (a, b) => b.last - a.last,
       passLow: (a, b) => a.passRate - b.passRate || b.subs - a.subs,
       passHigh: (a, b) => b.passRate - a.passRate || b.subs - a.subs,
       subs: (a, b) => b.subs - a.subs,
-      id: (a, b) => a.userId.localeCompare(b.userId),
+      id: (a, b) => (a.name || a.userId).localeCompare(b.name || b.userId),
     };
     return [...list].sort(by[sort] || by.recent);
   }, [data.roster, filter, q, sort]);
@@ -702,6 +703,7 @@ function StudentsAnalytics({ submissions }) {
       .sort((a, b) => a.modId.localeCompare(b.modId));
   }, [detail]);
   const catSubs = openCat ? (groups.find((g) => g.modId === openCat)?.subs || []) : [];
+  const openLabel = openId ? (data.roster.find((r) => r.userId === openId)?.name || `Student ${openId}`) : '';
   const openStudent = (id) => { setOpenId(id); setOpenCat(null); };
   const closeStudent = () => { setOpenId(null); setOpenCat(null); };
 
@@ -756,7 +758,7 @@ function StudentsAnalytics({ submissions }) {
               <h3 className="font-bold text-slate-800 text-base sm:text-lg shrink-0">Student Roster <span className="text-slate-400 font-medium text-sm">· {filtered.length}/{data.roster.length}</span></h3>
               <div className="relative sm:w-56">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon d={ICONS.search} className="w-4 h-4" /></span>
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search student ID..." className="w-full bg-slate-50 border border-slate-200 pl-9 pr-3 py-2.5 rounded-xl text-sm sm:text-base font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#03045e] focus:ring-1 focus:ring-[#03045e] transition-colors" />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search username or ID..." className="w-full bg-slate-50 border border-slate-200 pl-9 pr-3 py-2.5 rounded-xl text-sm sm:text-base font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#03045e] focus:ring-1 focus:ring-[#03045e] transition-colors" />
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -774,17 +776,17 @@ function StudentsAnalytics({ submissions }) {
                 <option value="passLow">Pass rate · low→high</option>
                 <option value="passHigh">Pass rate · high→low</option>
                 <option value="subs">Most submissions</option>
-                <option value="id">Student ID</option>
+                <option value="id">Username</option>
               </select>
             </div>
           </div>
           <div className="divide-y divide-slate-50 max-h-[540px] overflow-y-auto custom-scrollbar">
             {filtered.map((r) => (
               <button key={r.userId} onClick={() => openStudent(r.userId)} className="w-full px-5 sm:px-6 py-4 flex items-center gap-4 text-left hover:bg-slate-50/60 active:bg-slate-100/60 transition-colors outline-none">
-                <div className="w-11 h-11 rounded-full bg-[#03045e]/10 text-[#03045e] flex items-center justify-center font-bold shrink-0 uppercase text-sm">{r.userId.slice(0, 2)}</div>
+                <div className="w-11 h-11 rounded-full bg-[#03045e]/10 text-[#03045e] flex items-center justify-center font-bold shrink-0 uppercase text-sm">{(r.name || r.userId).slice(0, 2)}</div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-800 text-sm sm:text-base truncate">Student {r.userId}</p>
-                  <p className="text-xs sm:text-sm text-slate-400 truncate">{r.problems} problems · {r.modules} modules · {r.exams} exam subs · last {r.last ? new Date(r.last).toLocaleDateString() : '—'}</p>
+                  <p className="font-bold text-slate-800 text-sm sm:text-base truncate">{r.name || `Student ${r.userId}`}</p>
+                  <p className="text-xs sm:text-sm text-slate-400 truncate">ID {r.userId} · {r.problems} problems · {r.modules} modules · {r.exams} exam subs · last {r.last ? new Date(r.last).toLocaleDateString() : '—'}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className="font-bold text-slate-900 tabular-nums text-base sm:text-lg">{r.passRate}%</p>
@@ -818,7 +820,7 @@ function StudentsAnalytics({ submissions }) {
       {openId && (
         <Modal
           wide
-          title={openCat ? `Student ${openId} · Module ${openCat}` : `Student ${openId}`}
+          title={openCat ? `${openLabel} · Module ${openCat}` : openLabel}
           subtitle={openCat
             ? `${moduleName(openCat)} · ${catSubs.length} quer${catSubs.length !== 1 ? 'ies' : 'y'}`
             : `${detail.length} submission${detail.length !== 1 ? 's' : ''} across ${groups.length} module${groups.length !== 1 ? 's' : ''}`}

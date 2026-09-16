@@ -11,6 +11,7 @@ const KEYS = {
   problems: 'its_custom_problems',
   announcements: 'its_announcements',
   content: 'its_content',
+  userNames: 'its_user_names',
 };
 
 const STORE_EVENT = 'its-store-change';
@@ -33,6 +34,30 @@ function write(key, value) {
   } catch {
     /* SSR / no window — ignore */
   }
+}
+
+// ── User directory ──────────────────────────────────────────
+// Submissions are keyed by the numeric user id only, so the instructor roster
+// has no name to show. Every login records id -> username here so the roster
+// can label rows. Students who never logged in on this browser stay id-only.
+
+/** id -> username map of every user seen on this browser. */
+export function getUserNames() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(KEYS.userNames));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Record a logged-in user's username against their id. */
+export function rememberUser(user) {
+  if (!user?.id || !user.username) return;
+  const names = getUserNames();
+  if (names[user.id] === user.username) return;
+  names[user.id] = user.username;
+  localStorage.setItem(KEYS.userNames, JSON.stringify(names));
 }
 
 /** Subscribe to any store change. Returns an unsubscribe fn. */
