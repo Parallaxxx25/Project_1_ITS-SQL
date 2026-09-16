@@ -9,7 +9,7 @@ const INITIAL_LESSONS = [
   { id: '05', title: 'JOINS & RELATIONSHIPS', status: 'PENDING', desc: 'การรวมตารางหลายใบเข้าด้วยกันเพื่อดึงข้อมูลที่ซับซ้อน' },
   { id: '06', title: 'DISPLAYING DATA FROM MULTIPLE TABLES', status: 'PENDING', desc: 'การแสดงข้อมูลจากหลายตารางด้วย OUTER JOIN และการหาแถวที่ไม่มีคู่' },
   { id: '07', title: 'AGGREGATE FUNCTIONS', status: 'PENDING', desc: 'การสรุปข้อมูลด้วยฟังก์ชันรวม GROUP BY และ HAVING' },
-  { id: '08', title: 'SUBQUERIES', status: 'PENDING', desc: 'การเขียนคำสั่งซ้อนภายในคำสั่ง SQL ทั้งแบบ scalar, correlated และ EXISTS' },
+  { id: '08', title: 'SUBQUERIES', status: 'PENDING', desc: 'การเขียนคำสั่งซ้อนภายในคำสั่ง SQL ทั้งแบบค่าเดียวและแบบอ้างอิงไขว้' },
 ];
 
 export default function CourseText({ onNavigate, user }) {
