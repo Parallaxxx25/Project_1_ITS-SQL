@@ -31,8 +31,8 @@ from app.models.submission import Submission, SubmissionLog
 # INSTRUCTOR ACCOUNTS — the ONLY pre-set instructors (seeded on startup).
 # Students self sign-up (role=student); these are role=instructor.
 # No passwords here: one is generated per account at creation and printed
-# once. Set SEED_INSTRUCTOR_PW to pin it (useful on hosts with no
-# persistent disk, where accounts re-seed on every boot).
+# once. Set SEED_INSTRUCTOR_PW to pin it — that password is then forced onto
+# all three accounts on every startup and printed to the log every time.
 # ═══════════════════════════════════════════════════════════════════════
 INSTRUCTOR_SEED = [
     {"username": "aj001",      "name": "Instructor aj001",  "email": "aj001@kmitl.ac.th"},
@@ -43,10 +43,19 @@ INSTRUCTOR_SEED = [
 
 async def ensure_instructors():
     """Idempotently seed the fixed instructor accounts. Safe on every startup:
-    creates missing ones and repairs role/active on existing rows. Does NOT
-    touch the password or name of an existing account — an instructor who
-    changes their password keeps it across restarts."""
+    creates missing ones and repairs role/active on existing rows.
+
+    SEED_INSTRUCTOR_PW unset (default): a random password per account at
+    creation, printed once to the log; an existing account's password is never
+    touched, so an instructor who changes theirs keeps it across restarts. A
+    random password missed in the logs is NOT recoverable (bcrypt) — reset it
+    with scripts/reset_instructor_pw.py.
+
+    SEED_INSTRUCTOR_PW set: that one password is forced onto all three accounts
+    on every startup and echoed to the log each time. Shared, known-plaintext
+    credentials sitting in the host's log — demo/classroom deploys only."""
     from app.services.auth_service import hash_password
+    pinned = os.getenv("SEED_INSTRUCTOR_PW")
     async with AsyncSessionLocal() as db:
         for u in INSTRUCTOR_SEED:
             existing = await db.scalar(select(User).where(User.username == u["username"]))
@@ -54,12 +63,14 @@ async def ensure_instructors():
                 if existing.role != Role.INSTRUCTOR or not existing.is_active:
                     existing.role = Role.INSTRUCTOR
                     existing.is_active = True
+                if pinned:
+                    existing.password_hash = hash_password(pinned)
             else:
-                pw = os.getenv("SEED_INSTRUCTOR_PW") or secrets.token_urlsafe(9)
+                pw = pinned or secrets.token_urlsafe(9)
                 print(f"[seed] created instructor {u['username']} — temporary password: {pw}")
-                # ponytail: password is only ever shown here, at creation. There is
-                # no reset endpoint — reset a forgotten one via hash_password() in a
-                # one-off script.
+                # ponytail: a random password is only ever shown here, at creation.
+                # There is no reset endpoint — reset a forgotten one via
+                # scripts/reset_instructor_pw.py.
                 db.add(User(
                     username=u["username"],
                     password_hash=hash_password(pw),
@@ -69,6 +80,8 @@ async def ensure_instructors():
                     modules="[]",
                 ))
         await db.commit()
+    if pinned:
+        print(f"[seed] SEED_INSTRUCTOR_PW set — all instructor passwords are: {pinned}")
     print(f"✅  Instructors ensured: {', '.join(u['username'] for u in INSTRUCTOR_SEED)}")
 
 
