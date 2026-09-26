@@ -1,0 +1,134 @@
+# Production stack for the faculty VM — see DEPLOY_VM.md.
+#
+# Standalone, not an override of docker-compose.yml: Compose concatenates
+# `ports` across files, so an override could not remove the base file's
+# 8000:8000 / 8080:8080 mappings and the backend would stay reachable on the
+# host, bypassing Caddy and TLS. No service here but caddy binds a host port.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Every secret comes from ./.env (gitignored); compose refuses to start if a
+# required one is unset.
+
+services:
+  # Partner platform DB. A separate instance from tutor-postgres on purpose:
+  # Postgres grants CONNECT to PUBLIC on every database, so one instance with
+  # two databases would let student_ro reach the accounts table unless
+  # someone remembered a REVOKE.
+  app-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: its_sql
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+      POSTGRES_DB: its_sql
+    volumes:
+      - app_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U its_sql -d its_sql"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  tutor-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tutor
+      POSTGRES_PASSWORD: ${TUTOR_DB_PASSWORD:?set TUTOR_DB_PASSWORD in .env}
+      POSTGRES_DB: tutor_db
+    volumes:
+      - tutor_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tutor -d tutor_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  tutor-redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  tutor-api:
+    build: ./tutor
+    environment:
+      POSTGRES_URL: postgresql+asyncpg://tutor:${TUTOR_DB_PASSWORD}@tutor-postgres:5432/tutor_db
+      POSTGRES_URL_SYNC: postgresql://tutor:${TUTOR_DB_PASSWORD}@tutor-postgres:5432/tutor_db
+      # student_ro, never the owner role — role privileges are the real
+      # boundary; code_executor.py's regex allowlist is not. The role is
+      # provisioned after the seed (DEPLOY_VM.md Phase 6), since its grants
+      # need the production/sales schemas the seed creates.
+      POSTGRES_URL_EXEC: postgresql://student_ro:${STUDENT_RO_PASSWORD:?set STUDENT_RO_PASSWORD in .env}@tutor-postgres:5432/tutor_db
+      REDIS_URL: redis://tutor-redis:6379/0
+      SERVICE_KEY: ${SERVICE_KEY:?set SERVICE_KEY in .env}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGCHAIN_TRACING: ${LANGCHAIN_TRACING:-false}
+      LANGCHAIN_PROJECT: its-sql-prod
+      SLIDE_RAG_ENABLED: "false" # ~220MB ONNX model download; disk is tight
+      DEFAULT_PIPELINE_MODE: llm
+      ENV: production
+      DEBUG: "false" # true enables an arbitrary-SQL debug endpoint
+    depends_on:
+      tutor-postgres:
+        condition: service_healthy
+      tutor-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  partner-api:
+    build: ./backend
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      DATABASE_URL: postgresql+asyncpg://its_sql:${APP_DB_PASSWORD}@app-postgres:5432/its_sql
+      TUTOR_SERVICE_URL: http://tutor-api:8000
+      TUTOR_SERVICE_KEY: ${SERVICE_KEY} # must equal the tutor's SERVICE_KEY
+      FRONTEND_URL: https://${DOMAIN:?set DOMAIN in .env}
+      ALLOWED_EMAIL_DOMAIN: kmitl.ac.th
+      DEBUG: "false"
+      # ensure_instructors() print()s each instructor's one-time password at
+      # account creation; block-buffered stdout can hold it back from
+      # `docker compose logs` indefinitely.
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      app-postgres:
+        condition: service_healthy
+      tutor-api:
+        condition: service_healthy
+    restart: unless-stopped
+    # Single uvicorn worker on purpose — the login rate limiter is
+    # in-memory per process; --workers N would divide the throttle by N.
+
+  caddy:
+    build:
+      context: ./frontend
+      target: prod
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # certs live here — losing it hits Let's Encrypt rate limits
+      - caddy_config:/config
+    depends_on:
+      - partner-api
+    restart: unless-stopped
+
+volumes:
+  app_pgdata:
+  tutor_pgdata:
+  caddy_data:
+  caddy_config:

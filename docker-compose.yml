@@ -107,7 +107,9 @@ services:
         condition: service_healthy
 
   partner-web:
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: dev
     environment:
       VITE_API_TARGET: http://partner-api:8000
     ports:

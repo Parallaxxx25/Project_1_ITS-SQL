@@ -23,7 +23,7 @@ Master Prompt และ System Architecture Specification ที่ผสาน 
 - `LDAP_URL`: "ldap://NITROGEN.it.kmitl.ac.th:389"
 - `LDAP_DN`: "DC=it,DC=kmitl,DC=ac,DC=th"
 - `LDAP_USER`: ldap_bind
-- `LDAP_PASSWORD`: CodeWithCat51
+- `LDAP_PASSWORD`: <set in .env, never committed>
 
 ---
 
