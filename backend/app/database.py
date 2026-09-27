@@ -53,15 +53,28 @@ async def init_db():
     (create_all does NOT alter existing tables)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        if "sqlite" in settings.DATABASE_URL:
-            for table, col in (
-                ("users", "first_name VARCHAR(100)"),
-                ("users", "last_name VARCHAR(100)"),
-                ("problems", "tutor_problem_id INTEGER"),
-                ("submissions", "hint_token VARCHAR(64)"),
-                ("submissions", "tutor_verdict VARCHAR(16)"),
-            ):
+        is_sqlite = "sqlite" in settings.DATABASE_URL
+        for table, col in (
+            ("users", "first_name VARCHAR(100)"),
+            ("users", "last_name VARCHAR(100)"),
+            ("problems", "tutor_problem_id INTEGER"),
+            ("submissions", "hint_token VARCHAR(64)"),
+            ("submissions", "tutor_verdict VARCHAR(16)"),
+            ("submission_logs", "tutor_problem_id INTEGER"),
+            ("submission_logs", "client_problem_id VARCHAR(64)"),
+            ("submission_logs", "workspace_mode VARCHAR(16)"),
+            ("submission_logs", "attempt_number INTEGER"),
+            ("submission_logs", "client_is_correct BOOLEAN"),
+            ("submission_logs", "tutor_verdict VARCHAR(16)"),
+            ("submission_logs", "hint_text TEXT"),
+            ("hint_requests", "submission_log_id INTEGER REFERENCES submission_logs(id) ON DELETE SET NULL"),
+        ):
+            if is_sqlite:
                 try:
                     await conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {col}")
                 except Exception:
                     pass  # column already exists
+            else:
+                # A failed statement aborts the whole Postgres transaction, so
+                # the try/except above can't work here — IF NOT EXISTS instead.
+                await conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col}")

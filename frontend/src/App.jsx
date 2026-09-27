@@ -14,7 +14,7 @@ import InstructorDashboard from './components/InstructorDashboard';
 import { dbManager } from './lib/db-manager';
 import { getAllProblems } from './lib/problems';
 import { Verifier, stripSqlComments } from './lib/verifier';
-import { requestClientHint, fetchClientHint, getCurrentUser, getToken, clearAuth } from './lib/api';
+import { requestClientHint, fetchClientHint, logClientSubmission, getCurrentUser, getToken, clearAuth } from './lib/api';
 import { logout as authApiLogout } from './lib/auth-api';
 import { rememberUser } from './lib/instructor-store';
  
@@ -363,13 +363,16 @@ export default function App() {
         setOverlay({ visible: false });
         setSubmitError(result.error);
 
-        // EXAM gets no AI hints from any path — the failed/passed branch below
-        // already checks this; this one used to leak a hint on engine errors.
-        if ((localStorage.getItem('workspaceMode') || 'COURSE') === 'EXAM') return;
-
         const { submissionKey: errSubmissionKey } = getWorkspaceKeys();
         const errExistingSubs = JSON.parse(localStorage.getItem(errSubmissionKey)) || {};
         const errPriorAttempts = errExistingSubs[currentProblem]?.attempts?.length || 0;
+
+        // EXAM gets no AI hints from any path — the failed/passed branch below
+        // already checks this; this one used to leak a hint on engine errors.
+        if ((localStorage.getItem('workspaceMode') || 'COURSE') === 'EXAM') {
+          logAttempt(code, errPriorAttempts + 1, false);
+          return;
+        }
         lastAttemptRef.current = { query: code, attemptNumber: errPriorAttempts + 1, isCorrect: false };
 
         setHasAttempted(true);
@@ -439,10 +442,14 @@ export default function App() {
           setCurrentHint({ hint_text: "Syntax Error: SQL queries must end with a semicolon (;).", hint_level: null, source: 'local' });
           setTutorHintStatus('done');
           setBotAlert(true);
+          logAttempt(code, priorAttempts.length + 1, isPassed);
         } else {
           requestTutorHint(code, priorAttempts.length + 1, isPassed);
         }
-      } else { setBotAlert(false); }
+      } else {
+        setBotAlert(false);
+        logAttempt(code, priorAttempts.length + 1, isPassed);
+      }
 
       refreshCurrentSubmissions(currentProblem);
       setOverlay({ visible: true, status: isPassed ? 'success' : 'error' });
@@ -511,16 +518,35 @@ export default function App() {
     }
   };
 
+  // Which problem an attempt belongs to, for submission_logs — the
+  // frontend's own id works even for problems with no tutorProblemId.
+  const getProblemRef = useCallback(() => ({
+    clientProblemId: problemData?.id != null ? String(problemData.id) : undefined,
+    workspaceMode: localStorage.getItem('workspaceMode') || 'COURSE',
+  }), [problemData]);
+
+  // Logs every graded attempt requestTutorHint doesn't send to the tutor —
+  // passes, EXAM, the local semicolon rule, problems with no tutor mapping —
+  // so submission_logs sees all of them. Fire and forget: a logging failure
+  // never touches the submission itself.
+  const logAttempt = useCallback((query, attemptNumber, isCorrect) => {
+    logClientSubmission(problemData?.tutorProblemId, query, isCorrect, attemptNumber, getProblemRef()).catch(() => {});
+  }, [problemData, getProblemRef]);
+
   // Called right after a failed/errored submit — the deterministic /grade
   // call only (no LLM), just to learn whether a hint is mintable and, if so,
   // stash the token for handleOpenHintPanel to redeem later. Never shows a
   // loading state: this is a ~50ms round trip, not the Gemini call.
-  const requestTutorHint = useCallback(async (query, attemptNumber, isCorrect) => {
+  const requestTutorHint = useCallback(async (query, attemptNumber, isCorrect, isRetry = false) => {
     const tutorProblemId = problemData?.tutorProblemId;
     hintRequestIdRef.current = null;
-    if (!tutorProblemId) { setBotAlert(false); return; } // no tutor-side mapping for this problem (e.g. instructor-authored)
+    if (!tutorProblemId) { // no tutor-side mapping for this problem (e.g. instructor-authored)
+      setBotAlert(false);
+      logAttempt(query, attemptNumber, isCorrect);
+      return;
+    }
     try {
-      const req = await requestClientHint(tutorProblemId, query, isCorrect, attemptNumber);
+      const req = await requestClientHint(tutorProblemId, query, isCorrect, attemptNumber, isRetry, getProblemRef());
       if (req.hint_available && req.hint_request_id) {
         hintRequestIdRef.current = req.hint_request_id;
         setBotAlert(true);
@@ -534,7 +560,7 @@ export default function App() {
       setBotAlert(true);
       setTutorHintStatus('unavailable');
     }
-  }, [problemData]);
+  }, [problemData, logAttempt, getProblemRef]);
 
   // Fetches the tutor AI hint (the Gemini call) — called only when the
   // student opens the hint panel, so it fires at most once per attempt.
@@ -566,7 +592,7 @@ export default function App() {
       if (!hintRequestIdRef.current) {
         const { query, attemptNumber, isCorrect } = lastAttemptRef.current;
         if (!query) { setTutorHintStatus('unavailable'); return; }
-        await requestTutorHint(query, attemptNumber, isCorrect);
+        await requestTutorHint(query, attemptNumber, isCorrect, true);
       }
       if (hintRequestIdRef.current) {
         setTutorHintStatus('loading');

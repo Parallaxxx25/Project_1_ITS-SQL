@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 
@@ -19,16 +19,32 @@ class SubmissionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── Tutor hint request (client-graded flow — see App.jsx::handleSubmit,
-# which grades entirely in the browser via DuckDB-WASM) ──
-class HintRequestIn(BaseModel):
+# ── Client-graded attempts (see App.jsx::handleSubmit, which grades
+# entirely in the browser via DuckDB-WASM) ──
+class _ClientAttemptIn(BaseModel):
+    query: str
+    is_correct: bool
+    attempt_number: int = 1
+    # The frontend's own problem id and workspace mode — logged to
+    # submission_logs only, so rows stay identifiable without a tutor id.
+    client_problem_id: str | None = Field(None, max_length=64)
+    workspace_mode: str | None = Field(None, max_length=16)
+
+
+class HintRequestIn(_ClientAttemptIn):
     # The tutor service's own problem id (lib/problems.js's hand-mapped
     # tutorProblemId) — not this backend's own Problem.id, a separate,
     # unrelated catalog the live client-side-graded flow doesn't read.
     tutor_problem_id: int
-    query: str
-    is_correct: bool
-    attempt_number: int = 1
+    # True when App.jsx::retryTutorHint re-sends an attempt already reported
+    # here (after a tutor outage) — updates its submission_logs row instead
+    # of logging the same attempt twice.
+    is_retry: bool = False
+
+
+class SubmissionLogIn(_ClientAttemptIn):
+    # None for problems with no tutor-side mapping (e.g. instructor-authored).
+    tutor_problem_id: int | None = None
 
 
 class HintRequestOut(BaseModel):

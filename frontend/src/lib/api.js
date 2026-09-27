@@ -240,7 +240,9 @@ export async function createHint(problemId, payload) {
 // tutorProblemId is the tutor service's own problem id — see the
 // hand-mapped tutorProblemId field in lib/problems.js, not this problem's
 // own frontend id.
-export async function requestClientHint(tutorProblemId, query, isCorrect, attemptNumber = 1) {
+// problemRef ({ clientProblemId, workspaceMode }) only feeds submission_logs,
+// so a logged attempt says which problem it was even without a tutor id.
+export async function requestClientHint(tutorProblemId, query, isCorrect, attemptNumber = 1, isRetry = false, problemRef = {}) {
   return apiFetch('/submissions/hint-request', {
     method: 'POST',
     body: JSON.stringify({
@@ -248,6 +250,25 @@ export async function requestClientHint(tutorProblemId, query, isCorrect, attemp
       query,
       is_correct: isCorrect,
       attempt_number: attemptNumber,
+      is_retry: isRetry,
+      client_problem_id: problemRef.clientProblemId,
+      workspace_mode: problemRef.workspaceMode,
+    }),
+  });
+}
+
+// Logs an attempt that never goes through requestClientHint (passes, EXAM,
+// ...) — see App.jsx::logAttempt. tutorProblemId may be null.
+export async function logClientSubmission(tutorProblemId, query, isCorrect, attemptNumber = 1, problemRef = {}) {
+  return apiFetch('/submissions/log', {
+    method: 'POST',
+    body: JSON.stringify({
+      tutor_problem_id: tutorProblemId ?? null,
+      query,
+      is_correct: isCorrect,
+      attempt_number: attemptNumber,
+      client_problem_id: problemRef.clientProblemId,
+      workspace_mode: problemRef.workspaceMode,
     }),
   });
 }

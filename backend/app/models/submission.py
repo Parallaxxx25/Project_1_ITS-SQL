@@ -43,7 +43,15 @@ class Submission(Base):
 
 class SubmissionLog(Base):
     """
-    Raw log of EVERY query execution (for analytics/debugging).
+    Raw log of query executions (for analytics/debugging).
+
+    One row per client-graded attempt: POST /submissions/hint-request logs
+    the ones sent to the tutor service, POST /submissions/log every other
+    one (passes, EXAM, ... — see App.jsx::logAttempt). is_correct,
+    execution_time_ms and error_message are the tutor service's own
+    server-side grading of the query, never the browser's claim: they stay
+    NULL when the tutor wasn't asked, didn't respond, or ruled "ungradable",
+    and client_is_correct holds what the browser reported.
     """
     __tablename__ = "submission_logs"
 
@@ -57,6 +65,22 @@ class SubmissionLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True
     )
+    # Client-graded flow only. problem_id above stays NULL there: the
+    # frontend sends the tutor service's own problem id, not a row of this
+    # backend's problems table (see HintRequest.tutor_problem_id).
+    tutor_problem_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The frontend's own problem id (lib/problems.js) and workspace mode
+    # (COURSE / ASSIGNMENT / EXAM) — what identifies the problem when it
+    # has no tutor_problem_id.
+    client_problem_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    workspace_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    attempt_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Spoofable — kept only to compare against the tutor's is_correct.
+    client_is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    tutor_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The tutor hint text the student was shown for this attempt — filled in
+    # by POST /submissions/hint-request/{id}/hint, NULL if they never opened one.
+    hint_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self):
         return f"<SubmissionLog user={self.user_id} at={self.created_at}>"
@@ -69,11 +93,12 @@ class HintRequest(Base):
     The live frontend grades entirely client-side (DuckDB-WASM, see
     App.jsx::handleSubmit) and never calls POST /submissions — so this is
     deliberately its own table rather than a field on Submission: writing
-    client-reported is_correct into Submission/SubmissionLog would let a
-    student spoof their own grading history in tables the instructor
-    dashboards read as ground truth. This table exists purely to hold a
-    hint_token between POST /submissions/hint-request and
-    POST /submissions/hint-request/{id}/hint — nothing here is graded.
+    client-reported is_correct into Submission would let a student spoof
+    their own grading history in a table the instructor dashboards read as
+    ground truth. (SubmissionLog gets the tutor's verdict as is_correct and
+    the client's claim only in a separate client_is_correct.) This table
+    exists purely to hold a hint_token between POST /submissions/hint-request
+    and POST /submissions/hint-request/{id}/hint — nothing here is graded.
 
     tutor_problem_id is the tutor service's own problem id, sent directly
     by the frontend (see lib/problems.js's hand-mapped tutorProblemId
@@ -88,6 +113,10 @@ class HintRequest(Base):
     hint_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    # The attempt this hint belongs to, so the hint text lands on its log row.
+    submission_log_id: Mapped[int | None] = mapped_column(
+        ForeignKey("submission_logs.id", ondelete="SET NULL"), nullable=True
     )
 
     def __repr__(self):

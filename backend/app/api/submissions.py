@@ -9,11 +9,12 @@ from typing import List
 
 from app.database import get_db
 from app.models.user import User
-from app.models.submission import Submission, HintRequest
+from app.models.submission import Submission, SubmissionLog, HintRequest
 from app.schemas.submission import (
     SubmissionOut,
     HintRequestIn,
     HintRequestOut,
+    SubmissionLogIn,
 )
 from app.middleware.auth import get_current_user, require_ta
 from app.services import tutor_client
@@ -27,7 +28,10 @@ router = APIRouter(prefix="/submissions", tags=["Submissions"])
 # tutor service is reached from. is_correct here is client-reported and
 # is NOT written to Submission (see HintRequest's docstring) — it only
 # ever decides whether a hint gets offered, never anything an instructor
-# dashboard would trust as a grade.
+# dashboard would trust as a grade. Each attempt is logged to
+# SubmissionLog, graded by the tutor's own verdict, with the hint text
+# added once the student opens it; POST /log below covers the attempts
+# the frontend never sends to the tutor.
 #
 # There used to be a server-graded POST /submissions + POST /{id}/hint
 # pair here, backed by a SQLite sandbox (app/grading/). It was never
@@ -43,9 +47,10 @@ async def request_hint(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Forward a client-graded result to the tutor service purely to mint
-    a hint_token. Returns hint_available=False (no error) if the tutor
-    service didn't respond."""
+    """Forward a client-graded result to the tutor service to mint a
+    hint_token, and log the attempt to SubmissionLog. Returns
+    hint_available=False (no error) if the tutor service didn't respond —
+    the attempt is still logged, just without a tutor verdict."""
     tutor_resp = await tutor_client.grade(
         external_user_id=str(user.id),
         problem_id=payload.tutor_problem_id,
@@ -55,19 +60,77 @@ async def request_hint(
         # of this same attempt replays instead of double-counting.
         client_submission_id=f"its-sql-client:{user.id}:{payload.tutor_problem_id}:{payload.attempt_number}",
     )
+
+    log = None
+    if payload.is_retry:
+        result = await db.execute(
+            select(SubmissionLog)
+            .where(
+                SubmissionLog.user_id == user.id,
+                SubmissionLog.tutor_problem_id == payload.tutor_problem_id,
+                SubmissionLog.attempt_number == payload.attempt_number,
+                SubmissionLog.query == payload.query,
+            )
+            .order_by(SubmissionLog.id.desc())
+            .limit(1)
+        )
+        log = result.scalar_one_or_none()
+    if log is None:
+        log = SubmissionLog(
+            user_id=user.id,
+            tutor_problem_id=payload.tutor_problem_id,
+            client_problem_id=payload.client_problem_id,
+            workspace_mode=payload.workspace_mode,
+            attempt_number=payload.attempt_number,
+            query=payload.query,
+            client_is_correct=payload.is_correct,
+        )
+        db.add(log)
+    if tutor_resp is not None:
+        log.tutor_verdict = tutor_resp.get("verdict")
+        log.is_correct = {"pass": True, "fail": False}.get(log.tutor_verdict)
+        log.execution_time_ms = tutor_resp.get("execution_time_ms")
+        log.error_message = tutor_resp.get("error_message")
+
     if tutor_resp is None or not tutor_resp.get("hint_available"):
+        await db.commit()
         return HintRequestOut(hint_available=False)
 
+    await db.flush()  # assigns log.id
     hint_req = HintRequest(
         user_id=user.id,
         tutor_problem_id=payload.tutor_problem_id,
         hint_token=tutor_resp.get("hint_token"),
+        submission_log_id=log.id,
     )
     db.add(hint_req)
     await db.commit()
     await db.refresh(hint_req)
 
     return HintRequestOut(hint_request_id=hint_req.id, hint_available=True)
+
+
+@router.post("/log", status_code=204)
+async def log_submission(
+    payload: SubmissionLogIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Log a client-graded attempt that never goes through /hint-request —
+    passes, EXAM (which must never mint a hint_token), the local semicolon
+    rule, problems with no tutor mapping. Nothing grades it server-side, so
+    is_correct stays NULL and the browser's verdict lands only in
+    client_is_correct."""
+    db.add(SubmissionLog(
+        user_id=user.id,
+        tutor_problem_id=payload.tutor_problem_id,
+        client_problem_id=payload.client_problem_id,
+        workspace_mode=payload.workspace_mode,
+        attempt_number=payload.attempt_number,
+        query=payload.query,
+        client_is_correct=payload.is_correct,
+    ))
+    await db.commit()
 
 
 @router.post("/hint-request/{hint_request_id}/hint")
@@ -89,6 +152,13 @@ async def get_client_hint(
     tutor_resp = await tutor_client.hint(hint_req.hint_token)
     if tutor_resp is None:
         raise HTTPException(503, "Hint service unavailable — try again in a moment")
+
+    if hint_req.submission_log_id is not None:
+        log = await db.get(SubmissionLog, hint_req.submission_log_id)
+        if log is not None:
+            # A re-fetch overwrites — the row keeps the hint last shown.
+            log.hint_text = tutor_resp.get("hint_text")
+            await db.commit()
     return tutor_resp
 
 
