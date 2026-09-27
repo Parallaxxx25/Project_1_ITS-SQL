@@ -149,8 +149,8 @@ export default function Header({ currentPage, onNavigate, isLoggedIn, userData, 
               <img src={logoImg} alt="Logo" className="w-[70%] h-[70%] object-contain" />
             </div>
             <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tighter whitespace-nowrap">
-              <span className="text-[#e85d04] transition-colors duration-300 group-hover:text-[#f48c06]">DB</span>
-              <span className="text-[#03045e]">LEARN</span>
+              <span className="text-[#e85d04] transition-colors duration-300 group-hover:text-[#f48c06]">ITS</span>
+              <span className="text-[#03045e]">-SQL</span>
             </h1>
           </div>
         </div>

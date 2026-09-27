@@ -20,6 +20,8 @@ import { rememberUser } from './lib/instructor-store';
  
 import botIcon from './assets/bot.png';
 
+const EMPTY_HINT_HISTORY = { list: [], index: 0 };
+
 export default function App() {
   const isFreshEntry = !sessionStorage.getItem('is_initialized');
 
@@ -215,10 +217,23 @@ export default function App() {
   const [problemStatuses, setProblemStatuses] = useState([]);
   
   // Hints come from the tutor service only — see requestTutorHint/handleOpenHintPanel
-  // below. currentHint is the single most recent hint text (the tutor returns one
-  // hint per attempt, escalating in depth on resubmission — there's nothing to page
-  // through within one attempt).
-  const [currentHint, setCurrentHint] = useState(null); // { hint_text, hint_level, source } | null
+  // below. The tutor returns one hint per attempt, escalating in depth on
+  // resubmission, so hintHistory keeps every hint fetched on this problem
+  // (oldest first) for the panel's arrows to page back through; `index` is
+  // the one on screen and jumps to the newest whenever a hint lands.
+  const [hintHistory, setHintHistory] = useState(EMPTY_HINT_HISTORY); // { list: [{ hint_text, hint_level, source }], index }
+  const currentHint = hintHistory.list[hintHistory.index] || null;
+  const addHint = useCallback((hint) => {
+    setHintHistory(({ list }) => {
+      // Re-sending the same broken query (the local semicolon rule, mostly)
+      // shouldn't pad the history with copies of one hint.
+      const next = list[list.length - 1]?.hint_text === hint.hint_text ? list : [...list, hint];
+      return { list: next, index: next.length - 1 };
+    });
+  }, []);
+  const showHint = useCallback((i) => {
+    setHintHistory((h) => ({ ...h, index: Math.min(Math.max(i, 0), h.list.length - 1) }));
+  }, []);
   const [hasAttempted, setHasAttempted] = useState(false); // this problem has a failed/errored submission to hint on
   const [isHintOpen, setIsHintOpen] = useState(false);
   const [botAlert, setBotAlert] = useState(false);
@@ -321,7 +336,7 @@ export default function App() {
         setSubmitError(null);
         // Leaving this problem invalidates any hint context for it.
         setHasAttempted(false);
-        setCurrentHint(null);
+        setHintHistory(EMPTY_HINT_HISTORY);
         setTutorHintStatus('idle');
         setBotAlert(false);
         hintRequestIdRef.current = null;
@@ -376,7 +391,6 @@ export default function App() {
         lastAttemptRef.current = { query: code, attemptNumber: errPriorAttempts + 1, isCorrect: false };
 
         setHasAttempted(true);
-        setCurrentHint(null);
         setTutorHintStatus('idle');
         requestTutorHint(code, errPriorAttempts + 1, false);
         return;
@@ -430,16 +444,15 @@ export default function App() {
 
       if (!isPassed && mode !== 'EXAM') {
         setHasAttempted(true);
-        setCurrentHint(null);
-        // Reset — a fresh failed attempt means the previous attempt's
-        // fetched (or unavailable) tutor hint no longer applies.
+        // Reset — a fresh failed attempt earns its own hint; the earlier
+        // ones stay in hintHistory, but the fetch status starts over.
         setTutorHintStatus('idle');
         hintRequestIdRef.current = null;
         if (result.success && !hasSemicolon) {
           // Missing-semicolon is a client-grading rule the tutor never sees
           // (it never receives a query that "succeeded" client-side but was
           // rejected for this) — shown locally, no tutor round trip.
-          setCurrentHint({ hint_text: "Syntax Error: SQL queries must end with a semicolon (;).", hint_level: null, source: 'local' });
+          addHint({ hint_text: "Syntax Error: SQL queries must end with a semicolon (;).", hint_level: null, source: 'local' });
           setTutorHintStatus('done');
           setBotAlert(true);
           logAttempt(code, priorAttempts.length + 1, isPassed);
@@ -509,7 +522,6 @@ export default function App() {
         const priorAttempts = existingSubs[currentProblem]?.attempts?.length || 0;
         lastAttemptRef.current = { query: code, attemptNumber: priorAttempts + 1, isCorrect: false };
         setHasAttempted(true);
-        setCurrentHint(null);
         setTutorHintStatus('idle');
         hintRequestIdRef.current = null;
         requestTutorHint(code, priorAttempts + 1, false);
@@ -575,7 +587,7 @@ export default function App() {
     (async () => {
       try {
         const tutorHint = await fetchClientHint(hintRequestIdRef.current);
-        setCurrentHint(tutorHint);
+        addHint(tutorHint);
         setTutorHintStatus('done');
       } catch {
         setTutorHintStatus('unavailable');
@@ -598,7 +610,7 @@ export default function App() {
         setTutorHintStatus('loading');
         try {
           const tutorHint = await fetchClientHint(hintRequestIdRef.current);
-          setCurrentHint(tutorHint);
+          addHint(tutorHint);
           setTutorHintStatus('done');
         } catch {
           setTutorHintStatus('unavailable');
@@ -785,15 +797,34 @@ export default function App() {
                     </div>
                   ) : currentHint ? (
                     <div className="flex-1 flex flex-col animate-in fade-in duration-300">
-                      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#03045e]/5 border border-[#03045e]/10 mb-6 self-start">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#FF9900] animate-pulse"></span>
-                        <span className="text-[#03045e] text-[10px] font-bold uppercase tracking-widest">
-                          {currentHint.hint_level ? `Hint ${currentHint.hint_level} of 4` : 'Hint'}
-                        </span>
-                      </div>
                       <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex-1">
                         <HintText text={currentHint.hint_text} />
                       </div>
+                      {hintHistory.list.length > 1 && (
+                        <div className="flex items-center justify-center gap-4 mt-6">
+                          <button
+                            onClick={() => showHint(hintHistory.index - 1)}
+                            disabled={hintHistory.index === 0}
+                            aria-label="Previous hint"
+                            className="w-9 h-9 flex items-center justify-center rounded-full bg-white border border-slate-200 text-[#03045e] hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-white transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7"></path></svg>
+                          </button>
+                          <div className="flex items-center gap-1.5">
+                            {hintHistory.list.map((_, i) => (
+                              <span key={i} className={`h-1.5 rounded-full transition-all ${i === hintHistory.index ? 'w-4 bg-[#FF9900]' : 'w-1.5 bg-slate-300'}`}></span>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => showHint(hintHistory.index + 1)}
+                            disabled={hintHistory.index === hintHistory.list.length - 1}
+                            aria-label="Next hint"
+                            className="w-9 h-9 flex items-center justify-center rounded-full bg-white border border-slate-200 text-[#03045e] hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-white transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7"></path></svg>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-4">
