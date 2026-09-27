@@ -28,9 +28,9 @@ Three reasons the free-tier stack was not going to hold:
 |---|---|
 | RAM / cores | 7.8 GB, 4 cores — comfortable |
 | Disk | 19 GB root LV after Phase 1; **~4.5 GB free with the stack built** — still the binding constraint |
-| Network | VM sits inside the campus network; IT opens inbound 80 + 443 publicly |
-| TLS | Let's Encrypt via Caddy, HTTP-01 on port 80, auto-renewing |
-| Domain | Ask IT for `dblearn.it.kmitl.ac.th`. Use `<ip>.sslip.io` until then |
+| Network | VM sits inside the campus network at `10.0.30.101`. Reachable on campus and over the campus VPN, not from the internet |
+| TLS | Let's Encrypt via Caddy, DNS-01 through the Cloudflare API, auto-renewing |
+| Domain | `itssql.site` — registered at Z.com, DNS on Cloudflare (free plan), A record → `10.0.30.101` |
 
 ## Decisions already made
 
@@ -124,8 +124,22 @@ Run these in parallel with Phase 4. They block only the public half of Phase 7
 — with `DOMAIN=localhost` (Phase 5) everything through the isolation test runs
 on the VM without them.
 
-- **IT ticket:** inbound 80 + 443 open publicly. DNS record for
-  `dblearn.it.kmitl.ac.th` pointing at the VM.
+- **Domain on Cloudflare DNS.** `itssql.site` is registered at Z.com, which
+  has no DNS API Caddy can drive, so its nameservers point at the two
+  Cloudflare ones — only those two; a leftover Z.com nameserver makes
+  resolution intermittent. Don't edit DNS in the Z.com panel afterwards: it
+  can switch the nameservers back to Z.com's.
+- **One DNS record:** `A @ → 10.0.30.101`, proxy status **DNS only** (grey
+  cloud). Proxied would send traffic to Cloudflare's edge, which cannot reach
+  a private IP.
+- **Cloudflare API token** scoped to that zone only, with the `Zone:Read` and
+  `DNS:Edit` the [plugin](https://github.com/caddy-dns/cloudflare) asks for.
+  Goes in `.env` as `CF_API_TOKEN`. Check it before first use: `GET
+  /client/v4/zones?name=<domain>` must return the zone.
+
+No IT ticket. A public DNS record may hold a private IP, and the campus
+resolver (`10.0.30.1`) passes it through, checked 2026-09-26. DNS-01 needs only
+outbound HTTPS to Cloudflare and Let's Encrypt, which the VM has.
 - **Google Cloud Console — not needed today.** The login screen is
   username/password ([Login.jsx](frontend/src/components/Login.jsx) →
   [auth-api.js](frontend/src/lib/auth-api.js)); `loginWithGoogle` in
@@ -133,9 +147,8 @@ on the VM without them.
   wired back in: add `https://<your-domain>` to the OAuth client's authorized
   JavaScript origins, and redo it whenever the domain changes.
 
-Interim domain while the ticket sits: `<vm-public-ip>.sslip.io` resolves to that
-IP with no signup and works with Let's Encrypt. Swapping later is one line in
-`.env` — see [Changing the domain](#changing-the-domain).
+Swapping the domain later is one line in `.env` — see
+[Changing the domain](#changing-the-domain).
 
 ---
 
@@ -174,7 +187,8 @@ you put anything in it.
 ```bash
 cd /srv/its-sql
 (umask 077; cat >> .env <<EOF
-DOMAIN=dblearn.it.kmitl.ac.th
+DOMAIN=itssql.site
+CF_API_TOKEN=<Zone:Read + DNS:Edit token for the zone>
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 SERVICE_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 APP_DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
@@ -185,14 +199,17 @@ EOF
 )
 ```
 
-**No DNS record yet?** Use `DOMAIN=localhost`. Caddy issues itself a
-certificate from its internal CA and makes no Let's Encrypt calls, so nothing
-is burned against rate limits, and Phases 6–7 run on the VM with `curl -k`.
-Switch to the real name later — see [Changing the domain](#changing-the-domain).
+**No DNS record yet?** Use `DOMAIN=localhost` and comment out the `tls` block
+in the [Caddyfile](Caddyfile) — DNS-01 cannot issue for `localhost`. Caddy then
+issues itself a certificate from its internal CA and makes no Let's Encrypt
+calls, so nothing is burned against rate limits, and Phases 6–7 run on the VM
+with `curl -k`. `CF_API_TOKEN` must still be set to something, or compose
+refuses to start. Switch to the real name later — see
+[Changing the domain](#changing-the-domain).
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
-docker builder prune -f                          # the build leaves ~1.3 GB of cache
+docker builder prune -af                         # the build peaks ~2 GB above steady state (Caddy's Go toolchain); prune at once
 docker compose -f docker-compose.prod.yml ps     # wait for tutor-api healthy
 ```
 
@@ -334,7 +351,7 @@ EOF
 Expect `connected as: student_ro`, `sales.customers: 1445`, and `denied:` on all
 three tables. Any `FAIL` line means stop.
 
-**In a browser, from off campus** (needs the real domain and inbound 80/443):
+**In a browser, on campus Wi-Fi or the campus VPN** (needs the real domain):
 
 1. Sign up with a username and password, then sign in.
 2. Enrol with `ITSSQL2025`.
@@ -425,14 +442,14 @@ df -h && docker system df
 `FRONTEND_URL`. Change it in `.env`, then recreate both:
 
 ```bash
-sed -i 's/^DOMAIN=.*/DOMAIN=dblearn.it.kmitl.ac.th/' .env
+sed -i 's/^DOMAIN=.*/DOMAIN=itssql.site/' .env
 docker compose -f docker-compose.prod.yml up -d caddy partner-api
 docker compose -f docker-compose.prod.yml logs -f caddy   # watch for "certificate obtained successfully"
 ```
 
-The DNS record must already resolve to the VM and inbound 80 must be open, or
-the HTTP-01 challenge fails. Caddy retries with backoff, but repeated failures
-count against Let's Encrypt's limits — confirm with `dig +short <name>` first.
+The new zone must be on Cloudflare with `CF_API_TOKEN` covering it, and
+`dig +short <name>` must return `10.0.30.101`. Caddy retries with backoff, but
+repeated failures count against Let's Encrypt's limits — check both first.
 
 ### Known failure modes
 
@@ -442,13 +459,22 @@ count against Let's Encrypt's limits — confirm with `dig +short <name>` first.
 | Tutor health says `"degraded"` | Redis did not connect. Not fatal — grading and hints still work | `restart tutor-redis` |
 | Hints are generic and repetitive | `GOOGLE_API_KEY` missing or rejected; the pipeline falls back to rule-based hints rather than failing | Check the key, check VM outbound HTTPS |
 | No hint button on any problem; `hint-request` returns `hint_available: false` | Tutor catalog ids do not match `tutorProblemId` in `problems.js` — typically after a tutor reseed | See [Problem-ID mapping](#problem-id-mapping) |
-| Cert renewal fails | Port 80 closed, or the `caddy_data` volume was deleted | Confirm inbound 80; never delete `caddy_data` |
+| Cert renewal fails | `CF_API_TOKEN` expired, revoked or rescoped; nameservers moved off Cloudflare; or the `caddy_data` volume was deleted | `logs caddy`; reissue the token; never delete `caddy_data` |
+| Caddy exits with `module not registered: dns.providers.cloudflare` | Running stock `caddy:2-alpine` instead of the `caddy-build` stage | Rebuild: `build caddy` |
+| Site loads nowhere off campus | Expected — the A record is a private IP | Use the campus VPN |
+| Name does not resolve for one VPN user | Their home router's DNS-rebind protection drops private-IP answers | Point that machine at the VPN's DNS |
 | Disk full | Docker build cache | `docker builder prune -af && docker image prune -af` |
 
 ### Unresolved
 
-- **DNS name** — IT ticket outstanding; `.env` runs `DOMAIN=localhost` until
-  then. Interim `sslip.io` is an option if the ticket drags.
+- **Domain renewal.** `itssql.site` expires 2027-09-27. Z.com lists `.site`
+  at 50 THB/year; that is likely a first-year price, so check the renewal price
+  well before then. The Z.com and Cloudflare accounts are personal — hand both
+  to the successor named under Ownership, or the site loses its name and its
+  certificate renewals.
+- **Campus Wi-Fi not yet tested.** The campus VPN reaches `10.0.30.101:443`
+  (2026-09-26). Student Wi-Fi may sit behind a different firewall; test with
+  `Test-NetConnection 10.0.30.101 -Port 443` before announcing the URL.
 - **Problem-ID mapping is a snapshot.** `problems.js` still hard-codes tutor
   ids; [pin_tutor_problem_ids.py](scripts/pin_tutor_problem_ids.py) makes the
   tutor match them rather than removing the coupling. A new partner problem needs

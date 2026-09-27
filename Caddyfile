@@ -10,6 +10,12 @@
 # reads in backend/app/api/auth.py is the real peer, not a spoofable value.
 
 {$DOMAIN} {
+	# DNS-01: the domain resolves to a campus-private IP, so Let's Encrypt
+	# cannot reach port 80. The token needs Zone:Read + DNS:Edit on the zone.
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+	}
+
 	root * /srv
 	encode gzip
 
