@@ -110,7 +110,7 @@ export default function Home({ onNavigate, user }) {
           <div className="flex-1 w-full space-y-8 z-10">
             <div className="inline-flex items-center gap-3 bg-[#0077b6]/10 border border-[#0077b6]/20 text-[#023e8a] font-bold px-5 py-2.5 rounded-full shadow-sm shadow-[#023e8a]/5 tracking-widest text-xs uppercase backdrop-blur-md">
               <span className="w-2.5 h-2.5 rounded-full bg-[#e85d04] animate-pulse"></span>
-              Welcome to DBLearn Platform
+              Welcome to ITS-SQL Platform
             </div>
             
             <div className="space-y-6">

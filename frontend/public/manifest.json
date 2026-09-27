@@ -1,6 +1,6 @@
 {
-  "name": "DBLearn - SQL Practice Platform",
-  "short_name": "DBLearn",
+  "name": "ITS-SQL - SQL Practice Platform",
+  "short_name": "ITS-SQL",
   "description": "Interactive SQL Practice Platform with DuckDB Wasm",
   "start_url": "/",
   "display": "standalone",
