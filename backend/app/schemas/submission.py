@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
+from typing import Literal
 
 
 # ── Submission ──
@@ -24,7 +25,15 @@ class SubmissionOut(BaseModel):
 class _ClientAttemptIn(BaseModel):
     query: str
     is_correct: bool
+    # The browser's per-device localStorage count. It can repeat, so it is a
+    # fallback for older clients only: the client_submission_id key when no
+    # client_attempt_id is sent, the logged number when no client_problem_id is.
     attempt_number: int = 1
+    # Minted per attempt by the browser (App.jsx::newAttempt) and re-sent
+    # unchanged on a Retry. No ':' — it is embedded in client_submission_id.
+    client_attempt_id: str | None = Field(None, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
+    # A Run only reaches the backend when it errored.
+    action: Literal["submit", "run"] | None = None
     # The frontend's own problem id and workspace mode — logged to
     # submission_logs only, so rows stay identifiable without a tutor id.
     client_problem_id: str | None = Field(None, max_length=64)

@@ -22,6 +22,18 @@ import botIcon from './assets/bot.png';
 
 const EMPTY_HINT_HISTORY = { list: [], index: 0 };
 
+// One attempt as the backend logs it. attemptId is new for every Submit and
+// every errored Run, and a Retry re-sends the same object — so the backend
+// finds that attempt's own log row and the tutor replays that attempt's own
+// grade. attemptNumber is the per-browser localStorage count, kept for older
+// backends only: it skips errored Submits and Runs and restarts on another
+// device, so it can repeat. action is 'submit' or 'run'.
+const mintAttemptId = () => globalThis.crypto?.randomUUID?.()
+  ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+const newAttempt = (query, attemptNumber, isCorrect, action = 'submit') => (
+  { query, attemptNumber, isCorrect, action, attemptId: mintAttemptId() }
+);
+
 export default function App() {
   const isFreshEntry = !sessionStorage.getItem('is_initialized');
 
@@ -248,7 +260,7 @@ export default function App() {
   // is read from hasAttempted, and "no tutor mapping", read from problemData).
   const [tutorHintStatus, setTutorHintStatus] = useState('idle');
   const hintRequestIdRef = useRef(null);
-  const lastAttemptRef = useRef({ query: '', attemptNumber: 0 });
+  const lastAttemptRef = useRef(null); // the newAttempt() a Retry re-sends
 
   useEffect(() => { localStorage.setItem('selectedTab', selectedTab); }, [selectedTab]);
 
@@ -382,17 +394,19 @@ export default function App() {
         const errExistingSubs = JSON.parse(localStorage.getItem(errSubmissionKey)) || {};
         const errPriorAttempts = errExistingSubs[currentProblem]?.attempts?.length || 0;
 
+        const errAttempt = newAttempt(code, errPriorAttempts + 1, false);
+
         // EXAM gets no AI hints from any path — the failed/passed branch below
         // already checks this; this one used to leak a hint on engine errors.
         if ((localStorage.getItem('workspaceMode') || 'COURSE') === 'EXAM') {
-          logAttempt(code, errPriorAttempts + 1, false);
+          logAttempt(errAttempt);
           return;
         }
-        lastAttemptRef.current = { query: code, attemptNumber: errPriorAttempts + 1, isCorrect: false };
+        lastAttemptRef.current = errAttempt;
 
         setHasAttempted(true);
         setTutorHintStatus('idle');
-        requestTutorHint(code, errPriorAttempts + 1, false);
+        requestTutorHint(errAttempt);
         return;
       }
       const hasSemicolon = cleanCode.trim().endsWith(';');
@@ -415,7 +429,8 @@ export default function App() {
         ? prev.attempts
         : (prev ? [{ code: prev.code, passed: prev.passed, timestamp: prev.timestamp, queryResult: prev.queryResult }] : []);
       const thisAttempt = { code, passed: isPassed, timestamp: new Date().toLocaleString(), submittedAt: Date.now(), durationMs, queryResult: safeResult };
-      lastAttemptRef.current = { query: code, attemptNumber: priorAttempts.length + 1, isCorrect: isPassed };
+      const attempt = newAttempt(code, priorAttempts.length + 1, isPassed);
+      lastAttemptRef.current = attempt;
       // Latest fields stay top-level for backward compatibility (instructor grading, score view, etc.).
       const newSubmission = { ...thisAttempt, attempts: [...priorAttempts, thisAttempt] };
       existingSubs[currentProblem] = newSubmission;
@@ -455,13 +470,13 @@ export default function App() {
           addHint({ hint_text: "Syntax Error: SQL queries must end with a semicolon (;).", hint_level: null, source: 'local' });
           setTutorHintStatus('done');
           setBotAlert(true);
-          logAttempt(code, priorAttempts.length + 1, isPassed);
+          logAttempt(attempt);
         } else {
-          requestTutorHint(code, priorAttempts.length + 1, isPassed);
+          requestTutorHint(attempt);
         }
       } else {
         setBotAlert(false);
-        logAttempt(code, priorAttempts.length + 1, isPassed);
+        logAttempt(attempt);
       }
 
       refreshCurrentSubmissions(currentProblem);
@@ -520,11 +535,12 @@ export default function App() {
         // Read-only: an errored run is never written back to the submission
         // history, so it stays out of My Submissions and instructor grading.
         const priorAttempts = existingSubs[currentProblem]?.attempts?.length || 0;
-        lastAttemptRef.current = { query: code, attemptNumber: priorAttempts + 1, isCorrect: false };
+        const attempt = newAttempt(code, priorAttempts + 1, false, 'run');
+        lastAttemptRef.current = attempt;
         setHasAttempted(true);
         setTutorHintStatus('idle');
         hintRequestIdRef.current = null;
-        requestTutorHint(code, priorAttempts + 1, false);
+        requestTutorHint(attempt);
       }
       return { error: err?.message || 'เกิดข้อผิดพลาดในการรันคำสั่ง' };
     }
@@ -541,24 +557,24 @@ export default function App() {
   // passes, EXAM, the local semicolon rule, problems with no tutor mapping —
   // so submission_logs sees all of them. Fire and forget: a logging failure
   // never touches the submission itself.
-  const logAttempt = useCallback((query, attemptNumber, isCorrect) => {
-    logClientSubmission(problemData?.tutorProblemId, query, isCorrect, attemptNumber, getProblemRef()).catch(() => {});
+  const logAttempt = useCallback((attempt) => {
+    logClientSubmission(problemData?.tutorProblemId, attempt, getProblemRef()).catch(() => {});
   }, [problemData, getProblemRef]);
 
   // Called right after a failed/errored submit — the deterministic /grade
   // call only (no LLM), just to learn whether a hint is mintable and, if so,
   // stash the token for handleOpenHintPanel to redeem later. Never shows a
   // loading state: this is a ~50ms round trip, not the Gemini call.
-  const requestTutorHint = useCallback(async (query, attemptNumber, isCorrect, isRetry = false) => {
+  const requestTutorHint = useCallback(async (attempt, isRetry = false) => {
     const tutorProblemId = problemData?.tutorProblemId;
     hintRequestIdRef.current = null;
     if (!tutorProblemId) { // no tutor-side mapping for this problem (e.g. instructor-authored)
       setBotAlert(false);
-      logAttempt(query, attemptNumber, isCorrect);
+      logAttempt(attempt);
       return;
     }
     try {
-      const req = await requestClientHint(tutorProblemId, query, isCorrect, attemptNumber, isRetry, getProblemRef());
+      const req = await requestClientHint(tutorProblemId, attempt, isRetry, getProblemRef());
       if (req.hint_available && req.hint_request_id) {
         hintRequestIdRef.current = req.hint_request_id;
         setBotAlert(true);
@@ -602,9 +618,9 @@ export default function App() {
     setTutorHintStatus('idle');
     (async () => {
       if (!hintRequestIdRef.current) {
-        const { query, attemptNumber, isCorrect } = lastAttemptRef.current;
-        if (!query) { setTutorHintStatus('unavailable'); return; }
-        await requestTutorHint(query, attemptNumber, isCorrect, true);
+        const attempt = lastAttemptRef.current;
+        if (!attempt) { setTutorHintStatus('unavailable'); return; }
+        await requestTutorHint(attempt, true);
       }
       if (hintRequestIdRef.current) {
         setTutorHintStatus('loading');

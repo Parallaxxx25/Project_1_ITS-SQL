@@ -74,13 +74,26 @@ class SubmissionLog(Base):
     # has no tutor_problem_id.
     client_problem_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     workspace_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # This row's place among the student's logged attempts on this problem in
+    # this mode, counted server-side (submissions.py::_next_attempt_number) —
+    # so errored Submits and Runs get their own number, across devices too.
     attempt_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Minted per attempt by the browser and re-sent by a Retry, which finds
+    # this row by it. NULL from clients older than the column.
+    client_attempt_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # "submit" | "run" (a Run is logged only when it errored). NULL from
+    # clients older than the column.
+    action: Mapped[str | None] = mapped_column(String(8), nullable=True)
     # Spoofable — kept only to compare against the tutor's is_correct.
     client_is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     tutor_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # The tutor hint text the student was shown for this attempt — filled in
     # by POST /submissions/hint-request/{id}/hint, NULL if they never opened one.
     hint_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Where that hint came from ("llm" | "rule_based", "cached" only when the
+    # first fetch never recorded one) and the tutor's own time to produce it.
+    hint_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    hint_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     def __repr__(self):
         return f"<SubmissionLog user={self.user_id} at={self.created_at}>"

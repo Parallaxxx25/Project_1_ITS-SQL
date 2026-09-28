@@ -67,6 +67,10 @@ async def init_db():
             ("submission_logs", "client_is_correct BOOLEAN"),
             ("submission_logs", "tutor_verdict VARCHAR(16)"),
             ("submission_logs", "hint_text TEXT"),
+            ("submission_logs", "client_attempt_id VARCHAR(64)"),
+            ("submission_logs", "action VARCHAR(8)"),
+            ("submission_logs", "hint_source VARCHAR(16)"),
+            ("submission_logs", "hint_latency_ms INTEGER"),
             ("hint_requests", "submission_log_id INTEGER REFERENCES submission_logs(id) ON DELETE SET NULL"),
         ):
             if is_sqlite:

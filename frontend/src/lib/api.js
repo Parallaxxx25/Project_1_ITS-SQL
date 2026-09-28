@@ -240,36 +240,34 @@ export async function createHint(problemId, payload) {
 // tutorProblemId is the tutor service's own problem id — see the
 // hand-mapped tutorProblemId field in lib/problems.js, not this problem's
 // own frontend id.
-// problemRef ({ clientProblemId, workspaceMode }) only feeds submission_logs,
-// so a logged attempt says which problem it was even without a tutor id.
-export async function requestClientHint(tutorProblemId, query, isCorrect, attemptNumber = 1, isRetry = false, problemRef = {}) {
+// attempt is App.jsx::newAttempt's { query, isCorrect, attemptNumber,
+// attemptId, action }. problemRef ({ clientProblemId, workspaceMode }) only
+// feeds submission_logs, so a logged attempt says which problem it was even
+// without a tutor id.
+const attemptBody = (tutorProblemId, attempt, problemRef) => ({
+  tutor_problem_id: tutorProblemId,
+  query: attempt.query,
+  is_correct: attempt.isCorrect,
+  attempt_number: attempt.attemptNumber,
+  client_attempt_id: attempt.attemptId,
+  action: attempt.action,
+  client_problem_id: problemRef.clientProblemId,
+  workspace_mode: problemRef.workspaceMode,
+});
+
+export async function requestClientHint(tutorProblemId, attempt, isRetry = false, problemRef = {}) {
   return apiFetch('/submissions/hint-request', {
     method: 'POST',
-    body: JSON.stringify({
-      tutor_problem_id: tutorProblemId,
-      query,
-      is_correct: isCorrect,
-      attempt_number: attemptNumber,
-      is_retry: isRetry,
-      client_problem_id: problemRef.clientProblemId,
-      workspace_mode: problemRef.workspaceMode,
-    }),
+    body: JSON.stringify({ ...attemptBody(tutorProblemId, attempt, problemRef), is_retry: isRetry }),
   });
 }
 
 // Logs an attempt that never goes through requestClientHint (passes, EXAM,
 // ...) — see App.jsx::logAttempt. tutorProblemId may be null.
-export async function logClientSubmission(tutorProblemId, query, isCorrect, attemptNumber = 1, problemRef = {}) {
+export async function logClientSubmission(tutorProblemId, attempt, problemRef = {}) {
   return apiFetch('/submissions/log', {
     method: 'POST',
-    body: JSON.stringify({
-      tutor_problem_id: tutorProblemId ?? null,
-      query,
-      is_correct: isCorrect,
-      attempt_number: attemptNumber,
-      client_problem_id: problemRef.clientProblemId,
-      workspace_mode: problemRef.workspaceMode,
-    }),
+    body: JSON.stringify(attemptBody(tutorProblemId ?? null, attempt, problemRef)),
   });
 }
 

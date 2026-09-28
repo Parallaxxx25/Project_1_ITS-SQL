@@ -2,7 +2,10 @@
 POST /submissions/hint-request must log every attempt it forwards to the
 tutor to submission_logs, POST /submissions/hint-request/{id}/hint must add
 the hint text to that same row, and POST /submissions/log must log the rest
-(passes, EXAM, ...) without a tutor verdict. Also pins init_db()'s additive migration on a pre-existing
+(passes, EXAM, ...) without a tutor verdict. Every attempt gets its own
+server-counted attempt_number and — via client_attempt_id — its own
+client_submission_id at the tutor, so an errored Submit or Run never replays
+another attempt's grade. Also pins init_db()'s additive migration on a pre-existing
 submission_logs / hint_requests table, which is what the live Postgres has.
 
 Calls the endpoint functions directly with the tutor service stubbed out, so
@@ -37,7 +40,7 @@ from app.main import app as fastapi_app  # noqa: E402
 from app.middleware.auth import get_current_user  # noqa: E402
 from app.models.submission import HintRequest, SubmissionLog  # noqa: E402
 from app.models.user import User  # noqa: E402
-from app.schemas.submission import HintRequestIn  # noqa: E402
+from app.schemas.submission import HintRequestIn, SubmissionLogIn  # noqa: E402
 from app.services import tutor_client  # noqa: E402
 
 IS_SQLITE = engine.dialect.name == "sqlite"
@@ -59,8 +62,11 @@ OLD_SCHEMA = (
 class FakeTutor:
     def __init__(self):
         self.up = True
+        self.hint_source = "rule_based"
+        self.submission_ids = []  # client_submission_id of every /grade call
 
     async def grade(self, **kwargs):
+        self.submission_ids.append(kwargs["client_submission_id"])
         if not self.up:
             return None
         return {
@@ -72,8 +78,9 @@ class FakeTutor:
     async def hint(self, hint_token):
         if not self.up:
             return None
+        cached = self.hint_source == "cached"
         return {"hint_level": 1, "hint_text": f"hint for {hint_token}",
-                "source": "rule_based", "latency_ms": 5}
+                "source": self.hint_source, "latency_ms": 3 if cached else 5}
 
 
 async def _logs(db, user):
@@ -96,7 +103,8 @@ async def _run():
             for t in ("submission_logs", "hint_requests")
         })
     assert {"tutor_problem_id", "client_problem_id", "workspace_mode", "attempt_number",
-            "client_is_correct", "tutor_verdict", "hint_text"} <= cols["submission_logs"], cols
+            "client_is_correct", "tutor_verdict", "hint_text", "client_attempt_id", "action",
+            "hint_source", "hint_latency_ms"} <= cols["submission_logs"], cols
     assert "submission_log_id" in cols["hint_requests"], cols
 
     tutor = FakeTutor()
@@ -128,6 +136,15 @@ async def _run():
         resp = await submissions.get_client_hint(out.hint_request_id, user=user, db=db)
         await db.refresh(log)
         assert log.hint_text == resp["hint_text"] and log.hint_text
+        assert (log.hint_source, log.hint_latency_ms) == ("rule_based", 5)
+
+        # A re-fetch is answered from the tutor's cache: the text is kept,
+        # the source and latency of the original generation too.
+        tutor.hint_source = "cached"
+        await submissions.get_client_hint(out.hint_request_id, user=user, db=db)
+        await db.refresh(log)
+        assert (log.hint_source, log.hint_latency_ms) == ("rule_based", 5)
+        tutor.hint_source = "rule_based"
 
         # 2. Tutor down: the attempt is still logged, just without a verdict,
         #    and a failed hint fetch leaves hint_text alone.
@@ -193,6 +210,44 @@ async def _run():
         assert log.is_correct is None and log.tutor_verdict is None
         assert await db.scalar(select(func.count()).select_from(HintRequest).where(
             HintRequest.submission_log_id == log.id)) == 0
+
+        # 6. An errored Submit then an errored Run: the browser's count never
+        #    moved (both say 1), but each is its own attempt — its own row,
+        #    its own number, its own client_submission_id at the tutor.
+        def attempt(query, attempt_id, action, **kw):
+            return HintRequestIn(tutor_problem_id=9, query=query, is_correct=False, attempt_number=1,
+                                 client_attempt_id=attempt_id, action=action,
+                                 client_problem_id="42", workspace_mode="COURSE", **kw)
+
+        tutor.submission_ids.clear()
+        await submissions.request_hint(attempt("SELEC 1;", "a-1", "submit"), user=user, db=db)
+        tutor.up = False
+        await submissions.request_hint(attempt("SELECT x;", "a-2", "run"), user=user, db=db)
+        first, second = [l for l in await _logs(db, user) if l.client_problem_id == "42"]
+        assert (first.attempt_number, first.action, first.client_attempt_id) == (1, "submit", "a-1")
+        assert (second.attempt_number, second.action, second.tutor_verdict) == (2, "run", None)
+        assert tutor.submission_ids == [f"its-sql-client:{user.id}:a-1", f"its-sql-client:{user.id}:a-2"]
+
+        # Its Retry finds that row by the attempt id and re-sends the same
+        # client_submission_id, so the tutor would replay rather than regrade.
+        tutor.up = True
+        await submissions.request_hint(attempt("SELECT x;", "a-2", "run", is_retry=True), user=user, db=db)
+        await db.refresh(second)
+        assert second.tutor_verdict == "fail" and second.attempt_number == 2
+        assert tutor.submission_ids[-1] == tutor.submission_ids[1]
+
+        # POST /log continues the same count; another mode keeps its own.
+        await submissions.log_submission(SubmissionLogIn(
+            tutor_problem_id=9, query="SELECT 1;", is_correct=True, attempt_number=1,
+            client_attempt_id="a-3", action="submit", client_problem_id="42", workspace_mode="COURSE",
+        ), user=user, db=db)
+        await submissions.log_submission(SubmissionLogIn(
+            tutor_problem_id=9, query="SELECT 1;", is_correct=True, attempt_number=5,
+            client_problem_id="42", workspace_mode="EXAM",
+        ), user=user, db=db)
+        numbers = [(l.workspace_mode, l.attempt_number) for l in await _logs(db, user)
+                   if l.client_problem_id == "42"]
+        assert numbers == [("COURSE", 1), ("COURSE", 2), ("COURSE", 3), ("EXAM", 1)], numbers
 
     await engine.dispose()
 

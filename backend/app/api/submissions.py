@@ -3,7 +3,7 @@ Submission endpoints — record and view client-graded attempts, mint hints.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
@@ -20,6 +20,24 @@ from app.middleware.auth import get_current_user, require_ta
 from app.services import tutor_client
 
 router = APIRouter(prefix="/submissions", tags=["Submissions"])
+
+
+async def _next_attempt_number(db: AsyncSession, user: User, payload) -> int:
+    """This attempt's place among the student's logged attempts on this
+    problem in this mode. Counted here, not taken from the browser, whose
+    localStorage count skips errored Submits and Runs and restarts on
+    another device. Without a client_problem_id there is nothing to count
+    by, so the browser's number stands."""
+    if payload.client_problem_id is None:
+        return payload.attempt_number
+    prior = await db.scalar(
+        select(func.count()).select_from(SubmissionLog).where(
+            SubmissionLog.user_id == user.id,
+            SubmissionLog.client_problem_id == payload.client_problem_id,
+            SubmissionLog.workspace_mode == payload.workspace_mode,
+        )
+    )
+    return prior + 1
 
 
 # ── Client-graded flow ──────────────────────────────────────────────
@@ -51,26 +69,34 @@ async def request_hint(
     hint_token, and log the attempt to SubmissionLog. Returns
     hint_available=False (no error) if the tutor service didn't respond —
     the attempt is still logged, just without a tutor verdict."""
+    attempt_id = payload.client_attempt_id
     tutor_resp = await tutor_client.grade(
         external_user_id=str(user.id),
         problem_id=payload.tutor_problem_id,
         query=payload.query,
         partner_verdict="pass" if payload.is_correct else "fail",
-        # Deterministic per (student, problem, attempt) — a genuine retry
-        # of this same attempt replays instead of double-counting.
-        client_submission_id=f"its-sql-client:{user.id}:{payload.tutor_problem_id}:{payload.attempt_number}",
+        # One per attempt — a genuine retry of this same attempt replays
+        # instead of double-counting. Older clients send no attempt id; their
+        # per-browser count can repeat, and the tutor then replays the wrong
+        # attempt's grade.
+        client_submission_id=(
+            f"its-sql-client:{user.id}:{attempt_id}" if attempt_id
+            else f"its-sql-client:{user.id}:{payload.tutor_problem_id}:{payload.attempt_number}"
+        ),
     )
 
     log = None
     if payload.is_retry:
+        same_attempt = (
+            [SubmissionLog.client_attempt_id == attempt_id] if attempt_id
+            # Older clients: the newest row with this query — a Retry only
+            # ever re-sends the student's latest attempt.
+            else [SubmissionLog.tutor_problem_id == payload.tutor_problem_id,
+                  SubmissionLog.query == payload.query]
+        )
         result = await db.execute(
             select(SubmissionLog)
-            .where(
-                SubmissionLog.user_id == user.id,
-                SubmissionLog.tutor_problem_id == payload.tutor_problem_id,
-                SubmissionLog.attempt_number == payload.attempt_number,
-                SubmissionLog.query == payload.query,
-            )
+            .where(SubmissionLog.user_id == user.id, *same_attempt)
             .order_by(SubmissionLog.id.desc())
             .limit(1)
         )
@@ -81,7 +107,9 @@ async def request_hint(
             tutor_problem_id=payload.tutor_problem_id,
             client_problem_id=payload.client_problem_id,
             workspace_mode=payload.workspace_mode,
-            attempt_number=payload.attempt_number,
+            attempt_number=await _next_attempt_number(db, user, payload),
+            client_attempt_id=attempt_id,
+            action=payload.action,
             query=payload.query,
             client_is_correct=payload.is_correct,
         )
@@ -126,7 +154,9 @@ async def log_submission(
         tutor_problem_id=payload.tutor_problem_id,
         client_problem_id=payload.client_problem_id,
         workspace_mode=payload.workspace_mode,
-        attempt_number=payload.attempt_number,
+        attempt_number=await _next_attempt_number(db, user, payload),
+        client_attempt_id=payload.client_attempt_id,
+        action=payload.action,
         query=payload.query,
         client_is_correct=payload.is_correct,
     ))
@@ -156,8 +186,13 @@ async def get_client_hint(
     if hint_req.submission_log_id is not None:
         log = await db.get(SubmissionLog, hint_req.submission_log_id)
         if log is not None:
-            # A re-fetch overwrites — the row keeps the hint last shown.
+            # A re-fetch overwrites — the row keeps the hint last shown. The
+            # tutor answers a re-fetch from its cache, so "cached" never
+            # replaces the source and latency of the generation it replays.
             log.hint_text = tutor_resp.get("hint_text")
+            if tutor_resp.get("source") != "cached" or log.hint_source is None:
+                log.hint_source = tutor_resp.get("source")
+                log.hint_latency_ms = tutor_resp.get("latency_ms")
             await db.commit()
     return tutor_resp
 
