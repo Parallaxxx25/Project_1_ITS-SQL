@@ -41,6 +41,10 @@ backend/its_sql.db
 backend/backups/
 
 
+# ═══ Thesis working notes ═══
+# Experiment-design drafts, kept out of the repo; the shared version is a Claude Doc.
+docs/
+
 # ═══ OS / editor ═══
 .DS_Store
 Thumbs.db
