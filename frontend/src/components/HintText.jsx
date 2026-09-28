@@ -4,7 +4,9 @@ import { parseHint } from '../lib/hint-markdown';
 /**
  * Renders an AI hint's markdown: `backticks` become monospace chips (matching
  * the column chips in the LeftPanel schema cards) and ```sql fences become a
- * dark block matching the Monaco editor students type in.
+ * dark block matching the Monaco editor students type in. Both carry
+ * translate="no" so page translators (Google Translate) leave identifiers and
+ * SQL intact while the prose around them still translates.
  *
  * Everything is rendered as React elements, never dangerouslySetInnerHTML —
  * hint_text is LLM-authored, so React's escaping is what keeps it inert.
@@ -21,7 +23,8 @@ export default function HintText({ text }) {
         block.type === 'code' ? (
           <pre
             key={i}
-            className="bg-[#0d1117] text-slate-100 rounded-xl p-4 my-3 overflow-x-auto whitespace-pre font-mono text-[12px] leading-relaxed"
+            translate="no"
+            className="notranslate bg-[#0d1117] text-slate-100 rounded-xl p-4 my-3 overflow-x-auto whitespace-pre font-mono text-[12px] leading-relaxed"
           >
             {block.value}
           </pre>
@@ -31,7 +34,8 @@ export default function HintText({ text }) {
               part.bold ? (
                 <strong
                   key={j}
-                  className="font-mono font-semibold text-[13px] text-slate-800 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded"
+                  translate="no"
+                  className="notranslate font-mono font-semibold text-[13px] text-slate-800 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded"
                 >
                   {part.value}
                 </strong>

@@ -278,6 +278,9 @@ export default function RightPanel({ problemData, currentStep, onStepChange, onS
             value={code}
             onChange={handleEditorChange} 
             onMount={handleEditorMount}
+            // Page translators (Google Translate) rewrite Monaco's rendered lines,
+            // so the screen shows translated text instead of the student's SQL.
+            wrapperProps={{ translate: 'no', className: 'notranslate' }}
             theme="vs-dark"
             loading={
               <div className="flex h-full w-full items-center justify-center text-slate-400 font-mono text-sm">

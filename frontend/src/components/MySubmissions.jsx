@@ -27,7 +27,7 @@ const CollapsibleCode = React.memo(function CollapsibleCode({ title, subtitle, p
       {open && (
         <div className="px-5 sm:px-6 pb-5 space-y-4">
           <div className="bg-[#0e1117] rounded-2xl p-4 overflow-x-auto custom-scrollbar border border-slate-800">
-            <pre className="font-mono text-[14px] sm:text-[15px] lg:text-base leading-relaxed text-slate-200 whitespace-pre-wrap"><code>{code || '-- (no code stored)'}</code></pre>
+            <pre translate="no" className="notranslate font-mono text-[14px] sm:text-[15px] lg:text-base leading-relaxed text-slate-200 whitespace-pre-wrap"><code>{code || '-- (no code stored)'}</code></pre>
           </div>
           {queryResult && Array.isArray(queryResult.rows) && queryResult.rows.length > 0 && (
             <div>
@@ -190,7 +190,7 @@ function MySubmissions({ submissions, moduleSubs, problemData }) {
               </div>
 
               <div className="p-6 overflow-x-auto custom-scrollbar">
-                <pre className="font-mono text-[15px] sm:text-base lg:text-[17px] leading-relaxed text-slate-200 whitespace-pre-wrap">
+                <pre translate="no" className="notranslate font-mono text-[15px] sm:text-base lg:text-[17px] leading-relaxed text-slate-200 whitespace-pre-wrap">
                   <code>{latestSubmission.code}</code>
                 </pre>
               </div>

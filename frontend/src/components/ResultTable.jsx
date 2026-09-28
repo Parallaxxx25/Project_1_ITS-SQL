@@ -39,9 +39,10 @@ function ResultTable({ data }) {
         </span>
       </div>
 
-      {/* Table Grid Wrapper */}
+      {/* Table Grid Wrapper — column names and row values are query data, so
+          page translators (Google Translate) must leave them as-is. */}
       <div className="overflow-auto custom-scrollbar flex-1 bg-white">
-        <table className="w-full text-left border-collapse table-auto">
+        <table translate="no" className="notranslate w-full text-left border-collapse table-auto">
           <thead className="sticky top-0 z-20 bg-slate-50/80 backdrop-blur-md border-b border-slate-200">
             <tr>
               {columns.map((col) => (

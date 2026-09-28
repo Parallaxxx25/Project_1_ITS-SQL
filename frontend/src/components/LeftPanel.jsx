@@ -217,8 +217,10 @@ function LeftPanel({ problemData, currentStep }) {
           ).map((tbl, tblIdx) => (
             <div key={tblIdx} className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
               <div className="bg-slate-50 border-b border-slate-200 px-5 py-3.5">
+                {/* translate="no" on identifiers: students type these names into
+                    SQL, so page translators (Google Translate) must not rewrite them. */}
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-slate-700 font-bold text-sm font-mono">{tbl.name}</span>
+                  <span translate="no" className="notranslate text-slate-700 font-bold text-sm font-mono">{tbl.name}</span>
                   <span className="shrink-0 text-slate-400 text-xs font-medium">{tbl.columns?.length || 0} columns</span>
                 </div>
                 {tbl.desc && (
@@ -237,7 +239,7 @@ function LeftPanel({ problemData, currentStep }) {
                   {tbl.columns?.map((col, idx) => (
                     <tr key={idx} className="hover:bg-slate-50/50 transition-colors align-top">
                       <td className="px-5 py-3">
-                        <code className="text-blue-600 font-medium font-mono text-[13px] bg-blue-50/50 border border-blue-100 px-2 py-0.5 rounded">
+                        <code translate="no" className="notranslate text-blue-600 font-medium font-mono text-[13px] bg-blue-50/50 border border-blue-100 px-2 py-0.5 rounded">
                           {col.name}
                         </code>
                         {col.desc && (
@@ -245,7 +247,7 @@ function LeftPanel({ problemData, currentStep }) {
                         )}
                       </td>
                       <td className="px-5 py-3 text-right">
-                        <span className="inline-block text-slate-500 font-mono text-[11px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
+                        <span translate="no" className="notranslate inline-block text-slate-500 font-mono text-[11px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
                           {col.type}
                         </span>
                       </td>

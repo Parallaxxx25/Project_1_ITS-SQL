@@ -422,7 +422,7 @@ export default function CourseText({ onNavigate, user }) {
                         <div className="p-6">
                           <p className="text-slate-700 text-base font-medium mb-4">{detail.desc}</p>
                           <div className="bg-slate-900 rounded-xl p-5 overflow-x-auto shadow-inner">
-                            <pre className={`font-mono text-sm whitespace-pre-wrap ${detail.status === 'NOT_ATTEMPTED' ? 'text-slate-500 italic' : 'text-[#FF9900]'}`}>
+                            <pre translate="no" className={`notranslate font-mono text-sm whitespace-pre-wrap ${detail.status === 'NOT_ATTEMPTED' ? 'text-slate-500 italic' : 'text-[#FF9900]'}`}>
                               {detail.code}
                             </pre>
                           </div>
