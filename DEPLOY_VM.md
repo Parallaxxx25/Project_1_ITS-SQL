@@ -364,36 +364,87 @@ three tables. Any `FAIL` line means stop.
 
 ## Phase 8 — Backups
 
-Only the partner DB matters. The tutor DB is reseedable from
+Both databases need backing up. The tutor DB's *catalog* is reseedable from
 `SQL-Server-Sample-Database/` and `sql-problem/`, and Chroma rebuilds at boot —
-but a reseed must also restore the [problem-ID mapping](#problem-id-mapping).
+but `interaction_history` and `student_progress` are written at runtime (every
+attempt the tutor graded, with its hint level, error type and escalation
+trace), and no reseed brings them back. Restoring a dump also keeps the
+[problem-ID mapping](#problem-id-mapping), which a reseed loses.
+
+[scripts/backup_dbs.sh](scripts/backup_dbs.sh) dumps both, nightly:
+
+| Path under `/var/backups/its-sql` | Holds | Kept |
+|---|---|---|
+| `daily/` | `its_sql-<date>.sql.gz`, `tutor_db-<date>.sql.gz` | 30 days |
+| `weekly/` | Sunday's pair, copied from `daily/` | 180 days |
+| top level | anything taken by hand, e.g. a pre-deploy dump | never pruned |
+
+A failed `pg_dump` leaves no file behind and makes the run exit non-zero; the
+other database is still dumped. Each run appends one line to `backup.log`.
 
 ```bash
 sudo mkdir -p /var/backups/its-sql && sudo chown $USER /var/backups/its-sql
-chmod 700 /var/backups/its-sql      # dumps hold bcrypt hashes and emails
+chmod 700 /var/backups/its-sql      # dumps hold bcrypt hashes, emails and every student query
 crontab -e
 ```
 
 ```cron
-0 3 * * * cd /srv/its-sql && docker compose -f docker-compose.prod.yml exec -T app-postgres pg_dump -U its_sql its_sql | gzip > /var/backups/its-sql/its_sql-$(date +\%F).sql.gz
-0 4 * * * find /var/backups/its-sql -name 'its_sql-*.sql.gz' -mtime +7 -delete
+0 3 * * * /srv/its-sql/scripts/backup_dbs.sh >> /var/backups/its-sql/backup.log 2>&1
 0 5 * * 0 docker image prune -af --filter "until=168h"
 ```
 
-**Test a restore once, now, not during an incident:**
+**Upgrading from the old cron** (partner DB only, kept 7 days, dumps at the top
+level): replace its two backup lines with the one above, then move the existing
+dailies into `daily/` so they age out on schedule — `mv` keeps their mtime. The
+pattern leaves `its_sql-predeploy-*` at the top level, where nothing prunes it.
 
 ```bash
+mkdir -p /var/backups/its-sql/daily
+mv /var/backups/its-sql/its_sql-20??-??-??.sql.gz /var/backups/its-sql/daily/
+```
+
+Then run it once by hand and check that both files exist and are not a few
+bytes long:
+
+```bash
+/srv/its-sql/scripts/backup_dbs.sh && ls -la /var/backups/its-sql/daily
+```
+
+**Test a restore of each database once, now, not during an incident:**
+
+```bash
+# partner DB
 docker compose -f docker-compose.prod.yml exec -T app-postgres \
   psql -U its_sql -c "CREATE DATABASE restore_test;"
-gunzip -c /var/backups/its-sql/its_sql-$(date +%F).sql.gz | \
+gunzip -c /var/backups/its-sql/daily/its_sql-$(date +%F).sql.gz | \
   docker compose -f docker-compose.prod.yml exec -T app-postgres psql -U its_sql -d restore_test
 docker compose -f docker-compose.prod.yml exec -T app-postgres \
   psql -U its_sql -d restore_test -c "SELECT count(*) FROM users;"
 docker compose -f docker-compose.prod.yml exec -T app-postgres \
   psql -U its_sql -c "DROP DATABASE restore_test;"
+
+# tutor DB — -d tutor_db on CREATE/DROP, since no database is named "tutor"
+docker compose -f docker-compose.prod.yml exec -T tutor-postgres \
+  psql -U tutor -d tutor_db -c "CREATE DATABASE restore_test;"
+gunzip -c /var/backups/its-sql/daily/tutor_db-$(date +%F).sql.gz | \
+  docker compose -f docker-compose.prod.yml exec -T tutor-postgres psql -U tutor -d restore_test
+docker compose -f docker-compose.prod.yml exec -T tutor-postgres \
+  psql -U tutor -d restore_test -c "SELECT count(*) FROM interaction_history;"
+docker compose -f docker-compose.prod.yml exec -T tutor-postgres \
+  psql -U tutor -d tutor_db -c "DROP DATABASE restore_test;"
 ```
 
-Pull a copy to your own machine weekly: `scp vm:/var/backups/its-sql/*.gz .`
+**Restoring the tutor DB onto an empty volume.** Stop `tutor-api` first — its
+startup `create_all` would otherwise create empty tables ahead of the restore.
+Load the dump into the fresh `tutor_db` as above (its `GRANT ... TO student_ro`
+lines fail harmlessly while the role does not exist yet), re-run the two
+`student_ro` commands from [Phase 6](#phase-6--seed-then-the-read-only-role),
+then start `tutor-api`. Do not reseed and do not re-run the pin script: the
+dump already carries the pinned ids.
+
+**Off the VM.** Every copy above sits on the same disk as the databases. Pull
+the weekly pair to your own machine: `scp vm:/var/backups/its-sql/weekly/*.gz .`
+They hold student data — keep them on an encrypted disk only.
 
 ---
 
@@ -434,6 +485,9 @@ docker compose -f docker-compose.prod.yml restart tutor-api
 
 # disk check — run this monthly
 df -h && docker system df
+
+# backups still running — last runs, newest dumps
+tail -3 /var/backups/its-sql/backup.log && ls -lt /var/backups/its-sql/daily | head -5
 ```
 
 ### Changing the domain
