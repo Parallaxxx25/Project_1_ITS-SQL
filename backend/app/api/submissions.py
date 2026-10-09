@@ -3,12 +3,13 @@ Submission endpoints — record and view client-graded attempts, mint hints.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 from app.database import get_db
 from app.models.user import User
+from app.models.problem import Problem
 from app.models.submission import Submission, SubmissionLog, HintRequest
 from app.schemas.submission import (
     SubmissionOut,
@@ -40,6 +41,53 @@ async def _next_attempt_number(db: AsyncSession, user: User, payload) -> int:
     return prior + 1
 
 
+async def _backend_problem_id(db: AsyncSession, client_problem_id: str | None) -> int | None:
+    """This backend's own Problem.id for the frontend's problem id — seed.py
+    stores each lib/problems.js id as Problem.order_index. Compared as text:
+    instructor-authored problems (instructor-store.js) have Date.now() ids,
+    too big for the INTEGER column, and no row here, so they stay NULL — as
+    does an id more than one row claims."""
+    if client_problem_id is None:
+        return None
+    ids = (await db.scalars(
+        select(Problem.id)
+        .where(cast(Problem.order_index, String) == client_problem_id)
+        .limit(2)
+    )).all()
+    return ids[0] if len(ids) == 1 else None
+
+
+async def _tutor_grade(user: User, payload) -> dict | None:
+    """The tutor service's own server-side grading of this attempt, or None
+    if it didn't respond."""
+    attempt_id = payload.client_attempt_id
+    return await tutor_client.grade(
+        external_user_id=str(user.id),
+        problem_id=payload.tutor_problem_id,
+        query=payload.query,
+        partner_verdict="pass" if payload.is_correct else "fail",
+        # One per attempt — a genuine retry of this same attempt replays
+        # instead of double-counting. Older clients send no attempt id; their
+        # per-browser count can repeat, and the tutor then replays the wrong
+        # attempt's grade.
+        client_submission_id=(
+            f"its-sql-client:{user.id}:{attempt_id}" if attempt_id
+            else f"its-sql-client:{user.id}:{payload.tutor_problem_id}:{payload.attempt_number}"
+        ),
+    )
+
+
+def _apply_tutor_verdict(log: SubmissionLog, tutor_resp: dict | None) -> None:
+    """is_correct is the tutor's verdict, never the browser's claim — it
+    stays NULL when the tutor didn't respond or ruled "ungradable"."""
+    if tutor_resp is None:
+        return
+    log.tutor_verdict = tutor_resp.get("verdict")
+    log.is_correct = {"pass": True, "fail": False}.get(log.tutor_verdict)
+    log.execution_time_ms = tutor_resp.get("execution_time_ms")
+    log.error_message = tutor_resp.get("error_message")
+
+
 # ── Client-graded flow ──────────────────────────────────────────────
 # The live frontend grades entirely in the browser (DuckDB-WASM, see
 # App.jsx::handleSubmit) — these two endpoints are the actual path the
@@ -49,7 +97,7 @@ async def _next_attempt_number(db: AsyncSession, user: User, payload) -> int:
 # dashboard would trust as a grade. Each attempt is logged to
 # SubmissionLog, graded by the tutor's own verdict, with the hint text
 # added once the student opens it; POST /log below covers the attempts
-# the frontend never sends to the tutor.
+# the frontend never asks the tutor for a hint on.
 #
 # There used to be a server-graded POST /submissions + POST /{id}/hint
 # pair here, backed by a SQLite sandbox (app/grading/). It was never
@@ -70,20 +118,7 @@ async def request_hint(
     hint_available=False (no error) if the tutor service didn't respond —
     the attempt is still logged, just without a tutor verdict."""
     attempt_id = payload.client_attempt_id
-    tutor_resp = await tutor_client.grade(
-        external_user_id=str(user.id),
-        problem_id=payload.tutor_problem_id,
-        query=payload.query,
-        partner_verdict="pass" if payload.is_correct else "fail",
-        # One per attempt — a genuine retry of this same attempt replays
-        # instead of double-counting. Older clients send no attempt id; their
-        # per-browser count can repeat, and the tutor then replays the wrong
-        # attempt's grade.
-        client_submission_id=(
-            f"its-sql-client:{user.id}:{attempt_id}" if attempt_id
-            else f"its-sql-client:{user.id}:{payload.tutor_problem_id}:{payload.attempt_number}"
-        ),
-    )
+    tutor_resp = await _tutor_grade(user, payload)
 
     log = None
     if payload.is_retry:
@@ -104,6 +139,7 @@ async def request_hint(
     if log is None:
         log = SubmissionLog(
             user_id=user.id,
+            problem_id=await _backend_problem_id(db, payload.client_problem_id),
             tutor_problem_id=payload.tutor_problem_id,
             client_problem_id=payload.client_problem_id,
             workspace_mode=payload.workspace_mode,
@@ -114,11 +150,7 @@ async def request_hint(
             client_is_correct=payload.is_correct,
         )
         db.add(log)
-    if tutor_resp is not None:
-        log.tutor_verdict = tutor_resp.get("verdict")
-        log.is_correct = {"pass": True, "fail": False}.get(log.tutor_verdict)
-        log.execution_time_ms = tutor_resp.get("execution_time_ms")
-        log.error_message = tutor_resp.get("error_message")
+    _apply_tutor_verdict(log, tutor_resp)
 
     if tutor_resp is None or not tutor_resp.get("hint_available"):
         await db.commit()
@@ -145,12 +177,18 @@ async def log_submission(
     db: AsyncSession = Depends(get_db),
 ):
     """Log a client-graded attempt that never goes through /hint-request —
-    passes, EXAM (which must never mint a hint_token), the local semicolon
-    rule, problems with no tutor mapping. Nothing grades it server-side, so
-    is_correct stays NULL and the browser's verdict lands only in
-    client_is_correct."""
-    db.add(SubmissionLog(
+    passes, EXAM (which must never get a hint), the local semicolon rule,
+    problems with no tutor mapping. The tutor still grades it when the
+    problem has a tutor mapping, so is_correct is its verdict here too; any
+    hint_token it mints is dropped — no HintRequest row, so nothing can
+    redeem it. With no mapping, is_correct stays NULL and the browser's
+    verdict lands only in client_is_correct."""
+    tutor_resp = (
+        await _tutor_grade(user, payload) if payload.tutor_problem_id is not None else None
+    )
+    log = SubmissionLog(
         user_id=user.id,
+        problem_id=await _backend_problem_id(db, payload.client_problem_id),
         tutor_problem_id=payload.tutor_problem_id,
         client_problem_id=payload.client_problem_id,
         workspace_mode=payload.workspace_mode,
@@ -159,7 +197,9 @@ async def log_submission(
         action=payload.action,
         query=payload.query,
         client_is_correct=payload.is_correct,
-    ))
+    )
+    _apply_tutor_verdict(log, tutor_resp)
+    db.add(log)
     await db.commit()
 
 

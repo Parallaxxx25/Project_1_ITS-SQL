@@ -2,7 +2,9 @@
 POST /submissions/hint-request must log every attempt it forwards to the
 tutor to submission_logs, POST /submissions/hint-request/{id}/hint must add
 the hint text to that same row, and POST /submissions/log must log the rest
-(passes, EXAM, ...) without a tutor verdict. Every attempt gets its own
+(passes, EXAM, ...) — still with the tutor's verdict as is_correct, but
+never a HintRequest. Each row's problem_id is this backend's own Problem.id,
+looked up from the frontend's problem id. Every attempt gets its own
 server-counted attempt_number and — via client_attempt_id — its own
 client_submission_id at the tutor, so an errored Submit or Run never replays
 another attempt's grade. Also pins init_db()'s additive migration on a pre-existing
@@ -38,6 +40,8 @@ from app.api import submissions  # noqa: E402
 from app.database import AsyncSessionLocal, engine, init_db  # noqa: E402
 from app.main import app as fastapi_app  # noqa: E402
 from app.middleware.auth import get_current_user  # noqa: E402
+from app.models.course import Course, Lesson, Module  # noqa: E402
+from app.models.problem import Problem  # noqa: E402
 from app.models.submission import HintRequest, SubmissionLog  # noqa: E402
 from app.models.user import User  # noqa: E402
 from app.schemas.submission import HintRequestIn, SubmissionLogIn  # noqa: E402
@@ -69,10 +73,13 @@ class FakeTutor:
         self.submission_ids.append(kwargs["client_submission_id"])
         if not self.up:
             return None
+        # Agrees with the browser; mints a hint only for a failure.
+        verdict = kwargs["partner_verdict"]
+        failed = verdict != "pass"
         return {
-            "verdict": "fail", "score": 0.0, "execution_time_ms": 12,
-            "error_message": None, "hint_available": True,
-            "hint_token": f"tok-{uuid.uuid4().hex[:8]}",
+            "verdict": verdict, "score": 0.0 if failed else 1.0, "execution_time_ms": 12,
+            "error_message": None, "hint_available": failed,
+            "hint_token": f"tok-{uuid.uuid4().hex[:8]}" if failed else None,
         }
 
     async def hint(self, hint_token):
@@ -114,6 +121,17 @@ async def _run():
         name = f"logtest_{uuid.uuid4().hex[:8]}"
         user = User(username=name, password_hash="x", email=f"{name}@kmitl.ac.th", name=name)
         db.add(user)
+        # Seeded the way seed.py does it: the frontend's problem id lands in
+        # order_index, Problem.id is this backend's own.
+        course = Course(code=name, name=name, access_code=name)
+        module = Module(course=course, title="m")
+        lesson = Lesson(module=module, title="l")
+        problems = {
+            order_index: Problem(lesson=lesson, title=f"p{order_index}", description="",
+                                 schema_sql="", solution_query="SELECT 1;", order_index=order_index)
+            for order_index in (3, 42)
+        }
+        db.add_all(problems.values())
         await db.commit()
 
         # 1. A failed attempt is logged with the tutor's verdict, and the
@@ -127,6 +145,7 @@ async def _run():
         [log] = await _logs(db, user)
         assert (log.tutor_problem_id, log.attempt_number, log.query) == (7, 1, "SELECT 1;")
         assert (log.client_problem_id, log.workspace_mode) == ("3", "COURSE")
+        assert log.problem_id == problems[3].id
         assert log.client_is_correct is False
         assert log.tutor_verdict == "fail" and log.is_correct is False
         assert log.execution_time_ms == 12 and log.hint_text is None
@@ -208,6 +227,7 @@ async def _run():
         assert (log.query, log.client_problem_id, log.workspace_mode) == ("SELECT 3;", "1733000000123", "EXAM")
         assert log.tutor_problem_id is None and log.client_is_correct is True
         assert log.is_correct is None and log.tutor_verdict is None
+        assert log.problem_id is None  # instructor-authored: no row here
         assert await db.scalar(select(func.count()).select_from(HintRequest).where(
             HintRequest.submission_log_id == log.id)) == 0
 
@@ -248,6 +268,34 @@ async def _run():
         numbers = [(l.workspace_mode, l.attempt_number) for l in await _logs(db, user)
                    if l.client_problem_id == "42"]
         assert numbers == [("COURSE", 1), ("COURSE", 2), ("COURSE", 3), ("EXAM", 1)], numbers
+
+        # 7. POST /log still asks the tutor: a pass is logged as is_correct
+        #    True, an EXAM failure as False — and neither gets a HintRequest,
+        #    though the tutor minted a token for the failure.
+        passed, exam_pass = [l for l in await _logs(db, user) if l.client_problem_id == "42"][2:]
+        for log in (passed, exam_pass):
+            assert (log.tutor_verdict, log.is_correct, log.client_is_correct) == ("pass", True, True)
+            assert log.problem_id == problems[42].id
+        await submissions.log_submission(SubmissionLogIn(
+            tutor_problem_id=9, query="SELECT 0;", is_correct=False, attempt_number=6,
+            client_attempt_id="a-4", action="submit", client_problem_id="42", workspace_mode="EXAM",
+        ), user=user, db=db)
+        exam_fail = (await _logs(db, user))[-1]
+        assert (exam_fail.tutor_verdict, exam_fail.is_correct) == ("fail", False)
+        assert tutor.submission_ids[-1] == f"its-sql-client:{user.id}:a-4"
+        logged = [l.id for l in (passed, exam_pass, exam_fail)]
+        assert await db.scalar(select(func.count()).select_from(HintRequest).where(
+            HintRequest.submission_log_id.in_(logged))) == 0
+
+        # Tutor down: still logged, just without a verdict.
+        tutor.up = False
+        await submissions.log_submission(SubmissionLogIn(
+            tutor_problem_id=9, query="SELECT 1;", is_correct=True, attempt_number=7,
+            client_attempt_id="a-5", action="submit", client_problem_id="42", workspace_mode="COURSE",
+        ), user=user, db=db)
+        down = (await _logs(db, user))[-1]
+        assert (down.tutor_verdict, down.is_correct, down.client_is_correct) == (None, None, True)
+        assert down.problem_id == problems[42].id
 
     await engine.dispose()
 

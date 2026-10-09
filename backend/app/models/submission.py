@@ -46,12 +46,13 @@ class SubmissionLog(Base):
     Raw log of query executions (for analytics/debugging).
 
     One row per client-graded attempt: POST /submissions/hint-request logs
-    the ones sent to the tutor service, POST /submissions/log every other
-    one (passes, EXAM, ... — see App.jsx::logAttempt). is_correct,
-    execution_time_ms and error_message are the tutor service's own
-    server-side grading of the query, never the browser's claim: they stay
-    NULL when the tutor wasn't asked, didn't respond, or ruled "ungradable",
-    and client_is_correct holds what the browser reported.
+    the ones sent to the tutor service for a hint, POST /submissions/log
+    every other one (passes, EXAM, ... — see App.jsx::logAttempt), still
+    graded by the tutor. is_correct, execution_time_ms and error_message are
+    the tutor service's own server-side grading of the query, never the
+    browser's claim: they stay NULL when the problem has no tutor mapping,
+    the tutor didn't respond, or it ruled "ungradable", and
+    client_is_correct holds what the browser reported.
     """
     __tablename__ = "submission_logs"
 
@@ -65,9 +66,10 @@ class SubmissionLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True
     )
-    # Client-graded flow only. problem_id above stays NULL there: the
-    # frontend sends the tutor service's own problem id, not a row of this
-    # backend's problems table (see HintRequest.tutor_problem_id).
+    # Client-graded flow only. The frontend sends the tutor service's own
+    # problem id (see HintRequest.tutor_problem_id); problem_id above is
+    # looked up from client_problem_id instead (submissions.py::
+    # _backend_problem_id), NULL for instructor-authored problems.
     tutor_problem_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # The frontend's own problem id (lib/problems.js) and workspace mode
     # (COURSE / ASSIGNMENT / EXAM) — what identifies the problem when it
