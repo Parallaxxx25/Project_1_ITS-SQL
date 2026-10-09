@@ -305,6 +305,12 @@ export async function getStudentProgressList(courseId) {
   return apiFetch(`/dashboard/class/${courseId}/students`);
 }
 
+// Every student plus every attempt in submission_logs — the instructor
+// dashboard's Students & Analytics source. TA/Instructor/Admin only.
+export async function getClassAttempts() {
+  return apiFetch('/dashboard/attempts');
+}
+
 // ─── Admin ────────────────────────────────────────────────
 
 export async function listUsers(role = null, search = null) {

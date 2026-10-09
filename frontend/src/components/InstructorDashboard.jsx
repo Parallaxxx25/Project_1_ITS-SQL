@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { problems as builtinProblems, dbSchema } from '../lib/problems';
+import { problems as builtinProblems, dbSchema, getAllProblems } from '../lib/problems';
 import {
   getCustomProblems, saveCustomProblem, deleteCustomProblem,
   getAnnouncements, saveAnnouncement, deleteAnnouncement,
   getContent, saveContent, deleteContent,
-  getAllSubmissions, onStoreChange,
-  getExamConfigs, setExamConfig, getUserNames,
+  onStoreChange,
+  getExamConfigs, setExamConfig,
 } from '../lib/instructor-store';
+import { getClassAttempts } from '../lib/api';
 
 // ── Constants ───────────────────────────────────────────────
 const MODULES = [
@@ -133,16 +134,28 @@ export default function InstructorDashboard({ onNavigate, user }) {
   const [customProblems, setCustomProblems] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [content, setContent] = useState([]);
-  const [submissions, setSubmissions] = useState([]);
   const [examConfigs, setExamConfigs] = useState({});
+  // Students & Analytics comes from the server (submission_logs), not this
+  // browser's localStorage, which only ever held its own users' attempts.
+  const [classData, setClassData] = useState({ status: 'loading', students: [], submissions: [] });
 
   const refresh = useCallback(() => {
     setCustomProblems(getCustomProblems());
     setAnnouncements(getAnnouncements());
     setContent(getContent());
-    setSubmissions(getAllSubmissions());
     setExamConfigs(getExamConfigs());
   }, []);
+
+  const loadClass = useCallback(() => {
+    setClassData((d) => ({ ...d, status: 'loading' }));
+    getClassAttempts()
+      .then(({ students, attempts }) => setClassData({ status: 'ok', students, submissions: toSubmissions(attempts) }))
+      .catch((err) => setClassData((d) => ({ ...d, status: 'error', error: err?.message })));
+  }, []);
+
+  useEffect(() => {
+    if (section === 'students') loadClass();
+  }, [section, loadClass]);
 
   useEffect(() => {
     refresh();
@@ -202,7 +215,7 @@ export default function InstructorDashboard({ onNavigate, user }) {
         ))}
       </div>
 
-      {section === 'students' && <StudentsAnalytics submissions={submissions} />}
+      {section === 'students' && <StudentsAnalytics {...classData} onReload={loadClass} />}
       {section === 'content' && <ContentManager content={content} onRefresh={refresh} />}
       {section === 'problems' && <ProblemManager custom={customProblems} examConfigs={examConfigs} onRefresh={refresh} />}
       {section === 'announcements' && <AnnouncementManager items={announcements} onRefresh={refresh} author={user?.name || roleLabel} />}
@@ -624,7 +637,37 @@ function AnnouncementManager({ items, onRefresh, author }) {
 }
 
 // ── Students & Analytics (roster + class performance) ───────
-function StudentsAnalytics({ submissions }) {
+// One server-logged attempt per row, in the shape the roster reads: module
+// and step ("Q3") are where the problem sits in the workspace's own list
+// for that mode and module. Errored Runs are left out — they were never
+// submissions. passed is the tutor's verdict where it graded the attempt,
+// else what the browser showed the student.
+function toSubmissions(attempts) {
+  const where = new Map();
+  const counts = {};
+  getAllProblems().forEach((p) => {
+    const k = `${p.type}-${p.moduleId}`;
+    counts[k] = (counts[k] || 0) + 1;
+    where.set(String(p.id), { modId: p.moduleId, step: counts[k] });
+  });
+  return attempts
+    .filter((a) => a.action !== 'run')
+    .map((a) => {
+      const at = Date.parse(a.created_at);
+      return {
+        userId: String(a.user_id),
+        mode: a.workspace_mode,
+        ...(where.get(a.client_problem_id) || { modId: '?', step: '?' }),
+        passed: a.is_correct ?? a.client_is_correct,
+        code: a.query,
+        submittedAt: at,
+        timestamp: new Date(at).toLocaleString(),
+        durationMs: a.execution_time_ms,
+      };
+    });
+}
+
+function StudentsAnalytics({ status, error, students, submissions, onReload }) {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState('recent');
   const [filter, setFilter] = useState('all');
@@ -632,8 +675,10 @@ function StudentsAnalytics({ submissions }) {
   const [openCat, setOpenCat] = useState(null); // selected module inside the student modal
 
   const data = useMemo(() => {
-    const names = getUserNames(); // id -> username, recorded at login
+    const names = Object.fromEntries(students.map((s) => [String(s.id), s.username]));
     const map = new Map();
+    // Every student is on the roster, including those with no attempts yet.
+    students.forEach((s) => map.set(String(s.id), { userId: String(s.id), subs: 0, passed: 0, problems: new Set(), modules: new Set(), exams: 0, last: 0 }));
     const byModule = {};
     const byMode = { COURSE: 0, ASSIGNMENT: 0, EXAM: 0 };
     const durations = [];
@@ -668,7 +713,7 @@ function StudentsAnalytics({ submissions }) {
       roster, modules, byMode,
       total, students: map.size, passRate: total ? Math.round((passed / total) * 100) : 0, avgMs,
     };
-  }, [submissions]);
+  }, [students, submissions]);
 
   const filtered = useMemo(() => {
     let list = data.roster;
@@ -707,11 +752,17 @@ function StudentsAnalytics({ submissions }) {
   const openStudent = (id) => { setOpenId(id); setOpenCat(null); };
   const closeStudent = () => { setOpenId(null); setOpenCat(null); };
 
-  if (submissions.length === 0) {
+  if (status !== 'ok' || data.roster.length === 0) {
     return (
       <div className="space-y-5">
         <SectionHeader icon={ICONS.users} title="Students & Analytics" desc="Per-student progress and class performance from recorded submissions." />
-        <EmptyState icon={ICONS.users} title="No student data yet" hint="Once students submit answers in this browser, their progress and class analytics appear here." />
+        {status === 'loading' ? (
+          <EmptyState icon={ICONS.users} title="Loading student data…" />
+        ) : status === 'error' ? (
+          <EmptyState icon={ICONS.users} title="Couldn't load student data" hint={<>{error || 'Request failed.'} <button onClick={onReload} className="font-bold text-[#03045e] underline">Try again</button></>} />
+        ) : (
+          <EmptyState icon={ICONS.users} title="No student data yet" hint="Once students sign up and submit answers, their progress and class analytics appear here." />
+        )}
       </div>
     );
   }

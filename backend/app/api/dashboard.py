@@ -346,3 +346,48 @@ async def student_progress_list(
     # Sort by solved problems descending
     students_progress.sort(key=lambda s: s.solved_problems, reverse=True)
     return students_progress
+
+
+@router.get("/attempts")
+async def class_attempts(
+    user: User = Depends(require_ta),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every student, and every attempt they logged to submission_logs —
+    what the instructor dashboard's Students & Analytics section is built
+    from. The live frontend grades in the browser and never writes
+    Submission, so submission_logs is the only server-side record of student
+    work; the endpoints above, which read Submission, see none of it.
+    TA/Instructor/Admin only."""
+    students = (await db.scalars(
+        select(User).where(User.role == Role.STUDENT).order_by(User.id)
+    )).all()
+    logs = (await db.scalars(
+        select(SubmissionLog)
+        .join(User, User.id == SubmissionLog.user_id)
+        .where(User.role == Role.STUDENT)
+        .order_by(SubmissionLog.id)
+    )).all()
+    return {
+        "students": [
+            {"id": s.id, "username": s.username, "name": s.name, "student_id": s.student_id}
+            for s in students
+        ],
+        "attempts": [
+            {
+                "id": l.id,
+                "user_id": l.user_id,
+                "client_problem_id": l.client_problem_id,
+                "workspace_mode": l.workspace_mode,
+                "action": l.action,
+                "query": l.query,
+                # The browser's verdict — what the student was shown.
+                "client_is_correct": l.client_is_correct,
+                # The tutor's server-side verdict; NULL if it never graded this.
+                "is_correct": l.is_correct,
+                "execution_time_ms": l.execution_time_ms,
+                "created_at": l.created_at.isoformat(),
+            }
+            for l in logs
+        ],
+    }
