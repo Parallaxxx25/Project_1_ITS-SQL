@@ -53,11 +53,17 @@ Three reasons the free-tier stack was not going to hold:
 
 Do this today, whether or not the migration proceeds.
 
-[ldap.md](ldap.md) line 26 holds the `ldap_bind` service account password in
+[ldap.md](ldap.md) line 26 held the `ldap_bind` service account password in
 plaintext, and the file is tracked in git — it is in every clone and in history.
 
 1. Ask IT to rotate the `ldap_bind` password.
-2. Replace the value in `ldap.md` with `<set in .env, never committed>`.
+2. Replace the value in `ldap.md` with `<set in .env, never committed>`. *(Done:
+   line 26 now reads `<set in .env, never committed>`.)*
+
+**Still open:** [ldap.md:83-84](ldap.md#L83-L84) holds a personal KMITL
+account's username and password in plaintext, as "test" credentials. Same
+treatment — have the account owner change that password, then remove the two
+lines.
 
 Purging git history is a separate, larger job. Rotation is what stops the harm.
 
@@ -111,7 +117,7 @@ Clone **with submodules** — `tutor/` is empty otherwise:
 sudo mkdir -p /srv && sudo chown $USER /srv
 git clone --recurse-submodules <repo-url> /srv/its-sql
 cd /srv/its-sql
-git checkout feat/tutor-integration
+git checkout main
 ```
 
 **Check:** `ls tutor/backend` is not empty. `docker ps` runs without `sudo`.
@@ -299,10 +305,16 @@ all ids match. Idempotent.
 (`'updated': 185` on a re-run).
 
 One gold is expected to fail under `student_ro`: problem 180, *FINAL TEST MODULE
-01*, is `SELECT * FROM users;` — a mock table that exists only in the
-browser's DuckDB. Under the read-only role it cannot reach the tutor's real
-`users` table, which is the isolation working. It is an EXAM entry, so its
-hint panel is hidden in the UI anyway.
+01*, is `SELECT * FROM users;`. Under the read-only role it cannot reach the
+tutor's real `users` table, which is the isolation working. It is an EXAM entry,
+so its hint panel is hidden in the UI anyway.
+
+The mock `users` table it expects exists only in the platform backend's seed
+([seed.py](backend/app/seed.py) `schema_sql`, rows Alice/Bob), **not** in the
+browser: DuckDB-WASM loads only `frontend/public/bikestore_mysql.sql` (9
+BikeStores tables). So the browser's gold query errors too, and frontend problem
+99 cannot be passed by anyone until a `users` table is added to the browser
+dataset or the problem is rewritten.
 
 ---
 
